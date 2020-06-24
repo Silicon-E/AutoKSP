@@ -2,18 +2,25 @@ RUNONCEPATH("0:/AutoKSP/lib_orbit.ks").
 RUNONCEPATH("0:/AutoKSP/lib_math.ks").
 RUNONCEPATH("0:/AutoKSP/lib_ship.ks").
 
-// This script tries to perform a suicide burn, usually ending up 200m (+/- 10m)
-// above the surface regardless of SAFETY_ALT_FUDGE's value. It then runs simple_land.ks.
+// This script tries to perform a suicide burn, usually ending up above
+// the surface of the Mun. It then runs simple_land.ks.
 
 local SAFETY_ALT_FUDGE is 0. // How far up to bias the target altitude
 
 // ==================== LANDING START ====================
+if SHIP:ORBIT:PERIAPSIS > 0 {
+	print "FAIL: Cannot begin landing on "+SHIP:ORBIT:BODY:NAME+"; periapsis is greater than 0!".
+	print "  Force crash.".
+	local ERR is 1/0.
+}
 print "Begin landing on "+SHIP:ORBIT:BODY:NAME+".".
 if not GEAR {
 	set GEAR to TRUE.
 	wait 2.5.
 }
 local SHIP_BOUNDS is SHIP:BOUNDS.
+// Add the height of the ship up to its center to the fudge altitude. Z axis is vertical in bounds reference frame.
+set SAFETY_ALT_FUDGE to SAFETY_ALT_FUDGE + ((-SHIP_BOUNDS:ABSORIGIN)*SHIP_BOUNDS:FACING:INVERSE):Z - SHIP_BOUNDS:RELMIN:Z.
 local BURN_START_TIME is TIME:SECONDS + 10_000.
 set BURN_START_TIME to ESTIMATE_PATH().
 unlock STEERING.
@@ -36,7 +43,7 @@ when TIME:SECONDS >= BURN_START_TIME then {
 	set SHOULD_END to TRUE.
 }
 until TIME:SECONDS >= BURN_START_TIME or SHOULD_END {
-	local NEW_START_TIME is ESTIMATE_PATH(20).
+	local NEW_START_TIME is ESTIMATE_PATH(40).
 	if not (TIME:SECONDS >= BURN_START_TIME) {
 		set BURN_START_TIME to NEW_START_TIME.
 	}
@@ -59,20 +66,24 @@ local function ESTIMATE_PATH {
 	from {local ITERATION to 0.} until ABS(NEW_FINAL_RADAR_ALT)<=MARGIN or ITERATION>=20 step {set ITERATION to ITERATION+1.} do {
 		// Plan new manuever nodes.
 		local BURN_TIME is SHIP:VELOCITY:SURFACE:MAG / (AVAILABLE_ACCEL() - SHIP:SENSORS:GRAV:MAG). // Slight overestimate of burn time. This is good.
+		local FUEL_FLOW is AVAILABLE_FUEL_FLOW().
 		local FOUND_STOP is FALSE.
+		local SEGMENT_TIME is -1.
 		until FOUND_STOP {
-			local SEGMENT_TIME is BURN_TIME/SEGMENTS.
+			set SEGMENT_TIME to BURN_TIME/SEGMENTS.
 			// Clear manuever nodes.
 			for N in ALLNODES {
 				remove N.
 			}
 			wait 0. // Need ALLNODES to refresh.
 			// Add new nodes.
-			from {local I to 0.} until (ALLNODES:LENGTH>=1 and VERT_SPEED_AT(SHIP, TIME(TIME:SECONDS+ALLNODES[ALLNODES:LENGTH-1]:ETA)) >= 0) or I>=SEGMENTS*1.5 step {set I to I+1.} do {
-				add NODE(START_TIME + SEGMENT_TIME*(I+0.5), 0, 0, -AVAILABLE_ACCEL()*SEGMENT_TIME).
+			from {local I to 0.} until (ALLNODES:LENGTH>=1 and VERT_SPEED_AT(SHIP, TIME(TIME:SECONDS+ALLNODES[ALLNODES:LENGTH-1]:ETA +0.001)) >= 0) or I>=SEGMENTS*1.5 step {set I to I+1.} do {
+				local T is SEGMENT_TIME*(I+0.5).
+				// Ship available acceleration = maxThrust / (mass accounting for fuel burned)
+				add NODE(START_TIME+T, 0, 0, -(SHIP:AVAILABLETHRUST / MAX(SHIP:DRYMASS, SHIP:MASS-FUEL_FLOW*T))*SEGMENT_TIME).
 				wait 0. // Need ALLNODES to refresh.
 			}
-			if VERT_SPEED_AT(SHIP, TIME(TIME:SECONDS+ALLNODES[ALLNODES:LENGTH-1]:ETA)) >= 0 {
+			if VERT_SPEED_AT(SHIP, TIME(TIME:SECONDS+ALLNODES[ALLNODES:LENGTH-1]:ETA +0.001)) >= 0 {
 				set FOUND_STOP to TRUE.
 			} else {
 				set BURN_TIME to BURN_TIME*2. // 1.5*BURN_TIME wasn't enough; increase simulation time.
@@ -81,14 +92,14 @@ local function ESTIMATE_PATH {
 			if(TIME:SECONDS >= BURN_START_TIME) { return. }
 		}
 		
-		if TRUE or VERT_SPEED_AT(SHIP, TIME(TIME:SECONDS+ALLNODES[ALLNODES:LENGTH-1]:ETA)) >= 0 { // TODO: this check should be unnecessary. Disabled it for now.
+		if TRUE or VERT_SPEED_AT(SHIP, TIME(TIME:SECONDS+ALLNODES[ALLNODES:LENGTH-1]:ETA +0.001)) >= 0 { // TODO: this check should be unnecessary. Disabled it for now.
 			local ZERO_TIME is -1.
 			if ALLNODES:LENGTH=1 {
 				set ZERO_TIME to TIME:SECONDS + ALLNODES[0]:ETA.
 			} else {
-				local T1 is TIME:SECONDS + ALLNODES[ALLNODES:LENGTH-2]:ETA.
-				local T2 is TIME:SECONDS + ALLNODES[ALLNODES:LENGTH-1]:ETA.
-				set ZERO_TIME to LERP(T1, T2, (0-VERT_SPEED_AT(SHIP, TIME(T1))) / (VERT_SPEED_AT(SHIP, TIME(T2))-VERT_SPEED_AT(SHIP, TIME(T1)))).
+				local T1 is TIME:SECONDS + ALLNODES[ALLNODES:LENGTH-2]:ETA +0.001.
+				local T2 is TIME:SECONDS + ALLNODES[ALLNODES:LENGTH-1]:ETA +0.001.
+				set ZERO_TIME to LERP(T1, T2, (0-VERT_SPEED_AT(SHIP, TIME(T1))) / (VERT_SPEED_AT(SHIP, TIME(T2))-VERT_SPEED_AT(SHIP, TIME(T1)))) +SEGMENT_TIME/2.
 			}
 			local FUTURE_POS is POSITIONAT(SHIP, TIME(ZERO_TIME)).
 			local FUTURE_ALT is SHIP:ORBIT:BODY:ALTITUDEOF(FUTURE_POS).
@@ -110,7 +121,7 @@ local function ESTIMATE_PATH {
 		if(TIME:SECONDS >= BURN_START_TIME) { return. }
 	}
 	
-	//print "Final Radar Alt: "+NEW_FINAL_RADAR_ALT at(0,0).
+	print "Final Radar Alt: "+NEW_FINAL_RADAR_ALT at(0,5).
 	return START_TIME.
 }
 
