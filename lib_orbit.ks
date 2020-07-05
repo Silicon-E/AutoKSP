@@ -10,3 +10,9 @@ global R_TO_ORBITAL_SPEED is {
 	// Use the vis-viva equation:
 	return SQRT(6.673e-11*PLANET:MASS * (2/R - 1/SHIP:ORBIT:SEMIMAJORAXIS)).
 }.
+
+global PERI_APO_TO_ECCENTRICITY is {
+	parameter PERI.
+	parameter APO.
+	return (APO-PERI) / (APO+PERI).
+}.

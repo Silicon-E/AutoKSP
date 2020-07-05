@@ -1,6 +1,8 @@
+RUNONCEPATH("0:/AutoKSP/lib_ship.ks").
+
 declare parameter ORBIT_ALT to -1.
 
-print "Start Simple Launch From "+SHIP:ORBIT:BODY+".".
+print "Start Simple Launch From "+SHIP:ORBIT:BODY:NAME+".".
 
 declare LOWEST_SAFE_ORBIT_ALT to -1.
 if SHIP:ORBIT:BODY:ATM:EXISTS {
@@ -40,7 +42,7 @@ print "  Gravity Turn Prograde Altitude: "+TURN_PROGRADE_ALT.
 // Staging trigger:
 when SHIP:MAXTHRUST = 0 THEN {
 	stage.
-	return TRUE. // Preserve this trigger.
+	return not(STAGE:NUMBER = 0). // Preserve this trigger unless we ran out of stages.
 }
 
 // ==================== LAUNCH START ====================
@@ -71,11 +73,12 @@ print "  Begin circularization.".
 SAS off.
 lock STEERING to HEADING(90, 0).
 // Full throttle if we're past apoapsis OR time to apoapsis is less than the circularization burn time.
-lock THROTTLE to choose 0 if AVAILABLE_ACCEL=0 else (choose 1 if ETA:APOAPSIS>ETA:PERIAPSIS or ETA:APOAPSIS*1.5 < (ORBIT_SPEED-SHIP:VELOCITY:ORBIT:MAG)/AVAILABLE_ACCEL else 0).
-wait until SHIP:ORBIT:APOAPSIS>ORBIT_ALT-1000 and SHIP:ORBIT:PERIAPSIS>ORBIT_ALT-1000 and ABS(SHIP:ALTITUDE-ORBIT_ALT)<1000.
+lock THROTTLE to choose 0 if AVAILABLE_ACCEL()=0 else (choose 1 if ETA:APOAPSIS>ETA:PERIAPSIS or ETA:APOAPSIS*1.5 < (ORBIT_SPEED-SHIP:VELOCITY:ORBIT:MAG)/AVAILABLE_ACCEL() else 0).
+wait until SHIP:ORBIT:APOAPSIS>ORBIT_ALT-1000 and SHIP:ORBIT:PERIAPSIS>ORBIT_ALT-1000 and ORBIT_ALT-SHIP:ALTITUDE<1000.
 // Done with launch.
 print "  Launch complete.".
 unlock STEERING.
+lock THROTTLE to 0.
 unlock THROTTLE.
 set SHIP:CONTROL:MAINTHROTTLE to 0.
 SAS off.
@@ -118,9 +121,4 @@ function ORBITAL_SPEED_AT_ALTITUDE {
 	declare parameter PLANET.
 	// Use the vis-viva equation:
 	return SQRT(6.673e-11*PLANET:MASS * 1/(ALT+PLANET:RADIUS)).
-}
-
-function AVAILABLE_ACCEL
-{
-	return SHIP:AVAILABLETHRUST / SHIP:MASS.
 }
