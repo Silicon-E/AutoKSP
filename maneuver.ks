@@ -1,5 +1,10 @@
 //a copy of code for manuvering to the mun. No good for anything else.
 //and still not all that good
+
+parameter desired_height.
+parameter desired_body.
+parameter height_margin.
+
 local debug is true.
 local dquote is char(34).
 //maybe todo find compile directive to turn of parenticeless function calls.
@@ -433,7 +438,6 @@ function testpatch {
     print frame_out.
 }
 if debug{
-    clearScreen.
     if false{
         until false{
             wait 1.0.
@@ -453,8 +457,7 @@ if debug{
     //delagate conversion
     //same name not allowed
     //global manuverTo is manuverTo@.
-    manuverTo(25000,mun,5000).
+    manuverTo(desired_height, desired_body, height_margin). // manuverTo(25000,mun,5000).
     //this one now workes
 }
-//TODO when finished create delegates for library
 

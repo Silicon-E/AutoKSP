@@ -57,6 +57,11 @@ until SHIP:ALTITUDE >= TURN_PROGRADE_ALT {
 	lock STEERING to HEADING(90, LERP(90, 45, (SHIP:ALTITUDE-TURN_START_ALT)/(TURN_PROGRADE_ALT-TURN_START_ALT))).
 }
 // Finish gravity turn
+if SHIP:UP:VECTOR * SHIP:PROGRADE:VECTOR > 0.707 {
+	print "  Hold 45 degree pitch.".
+	lock STEERING to HEADING(90, 45).
+	wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000  or  SHIP:UP:VECTOR * SHIP:PROGRADE:VECTOR <= 0.707.
+}
 print "  Turn to prograde.".
 unlock STEERING.
 SAS on.

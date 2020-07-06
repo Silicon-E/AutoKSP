@@ -32,8 +32,7 @@ global GO_TO_ORBIT is {
 			if SHIP:ORBIT:BODY = PLANET {
 				RUNPATH("0:/AutoKSP/adjust_orbit.ks", PERI, APO).
 			} else {
-				// TODO: transfer
-				print "TODO: transfer".
+				RUNPATH("0:/AutoKSP/maneuver.ks, APO, PLANET, 1000).
 			}
 		}
 	}
