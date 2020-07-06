@@ -30,9 +30,9 @@ global GO_TO_ORBIT is {
 		// If in orbit, adjust orbit or transfer:
 		else if SHIP:ORBIT:PERIAPSIS>0 and SHIP:ORBIT:APOAPSIS>0 {
 			if SHIP:ORBIT:BODY = PLANET {
-				RUNPATH("0:/AutoKSP/adjust_orbit.ks", PERI, APO).
+				RUNPATH("0:/AutoKSP/adjust_orbit.ks", PERI, APO, MARGIN).
 			} else {
-				RUNPATH("0:/AutoKSP/maneuver.ks, APO, PLANET, 1000).
+				RUNPATH("0:/AutoKSP/maneuver.ks", APO, PLANET, MARGIN).
 			}
 		}
 	}
