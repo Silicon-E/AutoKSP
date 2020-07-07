@@ -44,3 +44,23 @@ global GO_TO_ORBIT is {
 	SAS off.
 	print "Done.".
 }.
+
+// Takes this ship from wherever it currently is in the solar system to being landed on a specified body.
+global GO_TO_SURFACE is {
+	declare parameter PLANET.
+	
+	print "Begin going to the surface of "+PLANET:NAME+".".
+	until SHIP:ORBIT:BODY=PLANET and SHIP:BOUNDS:BOTTOMALTRADAR < 0.1 {
+		if NOT(SHIP:ORBIT:BODY=PLANET) {
+			local ORBIT_ALT is LOWEST_SAFE_ORBIT_ALT(PLANET).
+			GO_TO_ORBIT(PLANET, ORBIT_ALT, ORBIT_ALT).
+		} else if SHIP:ORBIT:PERIAPSIS>0 and SHIP:ORBIT:APOAPSIS>0 {
+			runpath("0:/AutoKSP/land.ks").
+		} else { // Either periapsis or apoapsis is below sea level; use simple landing.
+			print "Collision course detected. Use emergency landing procedure.".
+			runpath("0:/AutoKSP/simple_land.ks").
+		}
+	}
+	BRAKES on.
+	print "Done.".
+}.

@@ -16,3 +16,17 @@ global PERI_APO_TO_ECCENTRICITY is {
 	parameter APO.
 	return (APO-PERI) / (APO+PERI).
 }.
+
+global LOWEST_SAFE_ORBIT_ALT is {
+	parameter PLANET.
+	
+	if PLANET:ATM:EXISTS {
+		return PLANET:ATM:HEIGHT + 5_000.
+	} else if PLANET=IKE or PLANET=TYLO or PLANET=IKE {
+		return 15_000.
+	} else if PLANET=BOP {
+		return 25_000.
+	} else {
+		return 10_000.
+	}
+}.
