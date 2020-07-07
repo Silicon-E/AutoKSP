@@ -66,7 +66,7 @@ print "  Turn to prograde.".
 unlock STEERING.
 SAS on.
 wait 0.
-set SASMODE to "prograde".
+set SASMODE to "prograde". // BUG: This intermittently does not set the mode to prograde.
 wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000.
 if SHIP:ORBIT:BODY:ATM:EXISTS and SHIP:ALTITUDE <= SHIP:ORBIT:BODY:ATM:HEIGHT {
 	print "  Maintain target apoapsis...".
