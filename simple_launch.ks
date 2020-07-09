@@ -1,20 +1,12 @@
+RUNONCEPATH("0:/AutoKSP/lib_ship.ks").
+RUNONCEPATH("0:/AutoKSP/lib_orbit.ks").
+
 declare parameter ORBIT_ALT to -1.
 
-print "Start Simple Launch From "+SHIP:ORBIT:BODY+".".
-
-declare LOWEST_SAFE_ORBIT_ALT to -1.
-if SHIP:ORBIT:BODY:ATM:EXISTS {
-		set LOWEST_SAFE_ORBIT_ALT to SHIP:ORBIT:BODY:ATM:HEIGHT + 5_000.
-} else if SHIP:ORBIT:BODY=IKE or SHIP:ORBIT:BODY=TYLO or SHIP:ORBIT:BODY=IKE {
-	set LOWEST_SAFE_ORBIT_ALT to 15_000.
-} else if SHIP:ORBIT:BODY=BOP {
-	set LOWEST_SAFE_ORBIT_ALT to 25_000.
-} else {
-	set LOWEST_SAFE_ORBIT_ALT to 10_000.
-}
+print "Start Simple Launch From "+SHIP:ORBIT:BODY:NAME+".".
 
 if ORBIT_ALT = -1 {
-	set ORBIT_ALT to LOWEST_SAFE_ORBIT_ALT.
+	set ORBIT_ALT to LOWEST_SAFE_ORBIT_ALT(SHIP:ORBIT:BODY).
 }
 print "  Target Orbit Altitude: "+ORBIT_ALT.
 
@@ -25,7 +17,7 @@ declare TURN_START_ALT to -1.
 if SHIP:ORBIT:BODY:ATM:EXISTS {
 	set TURN_START_ALT to PRESSURE_TO_ALT(KERBIN:ATM:ALTITUDEPRESSURE(2_000), SHIP:ORBIT:BODY:ATM).
 } else {
-	set TURN_START_ALT to LERP(SHIP:ALTITUDE, LOWEST_SAFE_ORBIT_ALT, 0.03). // 3% the way to low orbit
+	set TURN_START_ALT to LERP(SHIP:ALTITUDE, LOWEST_SAFE_ORBIT_ALT(SHIP:ORBIT:BODY), 0.03). // 3% the way to low orbit
 }
 print "  Gravity Turn Start Altitude: "+TURN_START_ALT.
 
@@ -33,14 +25,14 @@ declare TURN_PROGRADE_ALT to -1.
 if SHIP:ORBIT:BODY:ATM:EXISTS {
 	set TURN_PROGRADE_ALT to PRESSURE_TO_ALT(KERBIN:ATM:ALTITUDEPRESSURE(10_000), SHIP:ORBIT:BODY:ATM).
 } else {
-	set TURN_PROGRADE_ALT to LERP(SHIP:ALTITUDE, LOWEST_SAFE_ORBIT_ALT, 0.2). // 20% the way to low orbit
+	set TURN_PROGRADE_ALT to LERP(SHIP:ALTITUDE, LOWEST_SAFE_ORBIT_ALT(SHIP:ORBIT:BODY), 0.2). // 20% the way to low orbit
 }
 print "  Gravity Turn Prograde Altitude: "+TURN_PROGRADE_ALT.
 
 // Staging trigger:
 when SHIP:MAXTHRUST = 0 THEN {
 	stage.
-	return TRUE. // Preserve this trigger.
+	return not(STAGE:NUMBER = 0). // Preserve this trigger unless we ran out of stages.
 }
 
 // ==================== LAUNCH START ====================
@@ -55,11 +47,16 @@ until SHIP:ALTITUDE >= TURN_PROGRADE_ALT {
 	lock STEERING to HEADING(90, LERP(90, 45, (SHIP:ALTITUDE-TURN_START_ALT)/(TURN_PROGRADE_ALT-TURN_START_ALT))).
 }
 // Finish gravity turn
+if SHIP:UP:VECTOR * SHIP:SRFPROGRADE:VECTOR > 0.707 {
+	print "  Hold 45 degree pitch.".
+	lock STEERING to HEADING(90, 45).
+	wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000  or  SHIP:UP:VECTOR * SHIP:SRFPROGRADE:VECTOR <= 0.707.
+}
 print "  Turn to prograde.".
 unlock STEERING.
 SAS on.
 wait 0.
-set SASMODE to "prograde".
+set SASMODE to "prograde". // BUG: This intermittently does not set the mode to prograde.
 wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000.
 if SHIP:ORBIT:BODY:ATM:EXISTS and SHIP:ALTITUDE <= SHIP:ORBIT:BODY:ATM:HEIGHT {
 	print "  Maintain target apoapsis...".
@@ -71,11 +68,12 @@ print "  Begin circularization.".
 SAS off.
 lock STEERING to HEADING(90, 0).
 // Full throttle if we're past apoapsis OR time to apoapsis is less than the circularization burn time.
-lock THROTTLE to choose 0 if AVAILABLE_ACCEL=0 else (choose 1 if ETA:APOAPSIS>ETA:PERIAPSIS or ETA:APOAPSIS*1.5 < (ORBIT_SPEED-SHIP:VELOCITY:ORBIT:MAG)/AVAILABLE_ACCEL else 0).
-wait until SHIP:ORBIT:APOAPSIS>ORBIT_ALT-1000 and SHIP:ORBIT:PERIAPSIS>ORBIT_ALT-1000 and ABS(SHIP:ALTITUDE-ORBIT_ALT)<1000.
+lock THROTTLE to choose 0 if AVAILABLE_ACCEL()=0 else (choose 1 if ETA:APOAPSIS>ETA:PERIAPSIS or ETA:APOAPSIS*1.5 < (ORBIT_SPEED-SHIP:VELOCITY:ORBIT:MAG)/AVAILABLE_ACCEL() else 0).
+wait until SHIP:ORBIT:APOAPSIS>ORBIT_ALT-1000 and SHIP:ORBIT:PERIAPSIS>ORBIT_ALT-1000 and ORBIT_ALT-SHIP:ALTITUDE<1000.
 // Done with launch.
 print "  Launch complete.".
 unlock STEERING.
+lock THROTTLE to 0.
 unlock THROTTLE.
 set SHIP:CONTROL:MAINTHROTTLE to 0.
 SAS off.
@@ -118,9 +116,4 @@ function ORBITAL_SPEED_AT_ALTITUDE {
 	declare parameter PLANET.
 	// Use the vis-viva equation:
 	return SQRT(6.673e-11*PLANET:MASS * 1/(ALT+PLANET:RADIUS)).
-}
-
-function AVAILABLE_ACCEL
-{
-	return SHIP:AVAILABLETHRUST / SHIP:MASS.
 }

@@ -1,4 +1,4 @@
-
+print "Dock to "+target.
 
 sas off.
 rcs on.
@@ -43,5 +43,6 @@ until at_tar:mag < 2 {
 }
 
 set ship:control:neutralize to true.
-
 print "Coasting...".
+wait until not hastarget.
+print "Done.".
