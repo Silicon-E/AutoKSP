@@ -55,6 +55,8 @@ global GO_TO_SURFACE is {
 			local ORBIT_ALT is LOWEST_SAFE_ORBIT_ALT(PLANET).
 			GO_TO_ORBIT(PLANET, ORBIT_ALT, ORBIT_ALT).
 		} else if SHIP:ORBIT:PERIAPSIS>0 and SHIP:ORBIT:APOAPSIS>0 {
+			runpath("0:/AutoKSP/goto_clear_path.ks", SHIP:RETROGRADE:VECTOR).
+			runpath("0:/AutoKSP/deorbit.ks").
 			runpath("0:/AutoKSP/land.ks").
 		} else { // Either periapsis or apoapsis is below sea level; use simple landing.
 			print "Collision course detected. Use emergency landing procedure.".

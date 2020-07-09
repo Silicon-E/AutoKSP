@@ -25,6 +25,7 @@ local BURN_START_TIME is TIME:SECONDS + 10_000.
 set BURN_START_TIME to ESTIMATE_PATH().
 unlock STEERING.
 SAS on.
+wait 1.
 set SASMODE to "retrograde".
 set NAVMODE to "surface".
 lock THROTTLE to TIME:SECONDS >= BURN_START_TIME.
