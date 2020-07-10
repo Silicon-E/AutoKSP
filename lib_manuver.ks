@@ -1,44 +1,56 @@
-local debug is false.
+parameter debug is false.
 local dquote is char(34).
-//maybe todo find compile directive to turn of parenticeless function calls.
+//ctrl-K-0 to fold all, ctrl_K-J to unfold all (fold is colapse)
+//maybe todo find compile directive to turn of parenticeless local function calls.
 //math util
 //v=v_c*U
 //r=R_0*H
 //note to self: you can get rid of stock ships by moving the contents of {KSP}/Ships elsewhere.
-function get_v_c {
+local function get_v_c {
     parameter B.
     parameter Rad.
     return sqrt(B:mu/Rad).
 }
-function get_v_e {
+local function get_v_e {
     parameter B.
     parameter Rad.
     return get_v_c(B,Rad)*sqrt(2).
 }
-function U{
+local function U{
     parameter H_.
     return sqrt(2*H_/(1+H_)).
 }
-function U_e{
+local function U_e{
     parameter E_.
     return U((1+E_)/(1-E_)).//ecentricity for lowified orbits will be negative
 }
-function H{
+local function H{
     parameter U_.
     return U_^2/(2-U_^2).
 }
-function orbitPolar{
+local function Ui{
+    parameter Vf.
+    parameter Vc.
+    return sqrt(2+Vf^2/Vc^2).
+
+}
+local function Uf{//warning, imag output possible
+    parameter Ui.
+    return sqrt(Ui^2-2).
+}
+
+local function orbitPolar{
     parameter orb.
     parameter tanm.//true anomaly
     return orb:semimajoraxis*(1-orb:eccentricity^2)/(1+orb:eccentricity*cos(tanm)).
     
 }
-function diag{parameter s_.
+local function diag{parameter s_.
     if debug{
         print s_.
     }
 }
-function getPerapsisDirVec_broken_dontuse {//this is impossible, dont use
+local function getPerapsisDirVec_broken_dontuse {//this is impossible, dont use
     parameter orb is ship:orbit.
     local n_asc is V(cos(orb:lan),0,sin(orb:lan)).//i am guessing somewhat about chirality
     local L is Vcrs((orb:position-orb:body:position),orb:velocity:orbit):normalized.
@@ -52,7 +64,7 @@ function getPerapsisDirVec_broken_dontuse {//this is impossible, dont use
     // to the point where it’s impossible to get a fix on just which direction they’ll point.
 
 }
-function getPerapsisDirVec{
+local function getPerapsisDirVec{
     parameter B.
     parameter overflow is 10.
     if B=ship {
@@ -92,7 +104,7 @@ function getPerapsisDirVec{
     return positionat(B,tnot+eta)-orb:body:position.
 
 }
-function getApproxBurnTo {
+local function getApproxBurnTo {
     parameter B.
     parameter nd is nextnode.//edits
     parameter B_pvec is getPerapsisDirVec(B).//can do once outside and save for all runs.
@@ -109,7 +121,20 @@ function getApproxBurnTo {
     //wait 1.
 
 }
-function getOrbitRadiusAtVec {//returns as vector
+local function getApproxBurnToVelocity {
+    parameter Vf.
+    parameter nd is nextnode.//edits
+    local t is time:seconds+nd:eta.
+    set nd:prograde to 0.
+    set nd:normal to 0.
+    set nd:radialout to 0.
+    local vc0 is sqrt(ship:body:mu/(positionat(ship, t) -ship:orbit:BODY:POSITION):mag).
+    local U0 is velocityAt(ship,t):orbit:mag/vc0.
+    set nd:prograde to vc0*(Ui(Vf,Vc0)-U0).//works well now
+    //wait 1.
+
+}
+local function getOrbitRadiusAtVec {//returns as vector
     //"To travel the stars, you must learn that you are not the center of the cosmos...
     //to write a kos script, you must unlearn this lie."
     parameter B.//cannot just use orbit because {italic} positionat needs an orbitablllle...
@@ -152,12 +177,12 @@ function getOrbitRadiusAtVec {//returns as vector
     return positionat(B,tnot+eta)-orb:body:position.
 
 }
-function getRadAtVec_nowork{
+local function getRadAtVec_nowork{
     parameter orb.
     parameter vec.
     return orbitPolar(orb,vang(vec,getPerapsisDirVec(orb))).
 }
-function getDvEjectMoonDirect{//reversible
+local function getDvEjectMoonDirect{//reversible
     //all velocities are critical velocities, except v_f
     parameter V_MP.//of moon around planet, corre. to R_m
     parameter V_M.//of spacecraft around moon
@@ -169,7 +194,7 @@ function getDvEjectMoonDirect{//reversible
     return (sqrt(2*V_M^2+V_MP^2*(sqrt(2+(v_f/V_M)^2)-1)^2)-V_M).
         //=V_M*(U_m-1)
 }
-function getDvEjectMoonPlunge{//reversible
+local function getDvEjectMoonPlunge{//reversible
     //all velocities are critical velocities, except v_f
     parameter V_MP.//of moon around planet, corre. to R_m
     parameter V_M.//of spacecraft around moon
@@ -186,7 +211,7 @@ function getDvEjectMoonPlunge{//reversible
         +V_P*(sqrt(2-(v_f/V_P)^2)-sqrt(2*V_P^2/(V_MP^2+V_P^2))).
         //=V_M*(U_mf-1)+v_P*(U_fp-U_ip) 
 }
-function m_util_min{//list version of min
+local function m_util_min{//list version of min
     parameter ns.//will be destroyed
     if ns:length=2{
         return min(ns[0],ns[1]).
@@ -196,7 +221,7 @@ function m_util_min{//list version of min
         return min(a,m_util_min(ns)).
     }
 }
-function m_util_max{//list version of min
+local function m_util_max{//list version of min
     parameter ns.//will be destroyed
     if ns:length=2{
         return max(ns[0],ns[1]).
@@ -206,14 +231,14 @@ function m_util_max{//list version of min
         return max(a,m_util_max(ns)).
     }
 }
-function m_opt {
+local function m_opt {
     parameter node.
     parameter opt.
     parameter tgt is 0.//usage: "min", "max", or Scalar Value
     parameter stepVmax is 10.
     parameter dv is 0.001.
     parameter overflow is 100.
-    function farness {
+    local function farness {
         parameter optval.
         if tgt="min"{
             return optval.
@@ -359,6 +384,98 @@ function m_opt {
         diag("Optimizing: "+opt()+" DDV: "+sqrt(d_p^2+d_o^2+d_n^2)).
     }
 }
+local function m_opt_eta {
+    parameter node.
+    parameter opt.
+    parameter tgt is 0.//usage: "min", "max", or Scalar Value
+    parameter updt is "none".//runs each time node is changed
+    parameter stepTmax is 100.
+    parameter dt is 0.1.//anything lower than 0.01 and del_sq becomes inconsistant
+    parameter overflow is 100.
+    local doUpdate is not (updt="none").
+    local function farness {
+        parameter optval.
+        if tgt="min"{
+            return optval.
+        }
+        else if tgt="max"{
+            return -optval.
+        }else{
+            return abs(tgt-optval).
+        }
+    }
+    from {local a is 0.} until a>=overflow step {set a to a+1.} do {
+        local opt_ is opt().
+        local optopt is farness(opt_).
+        set node:eta to node:eta+dt.
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local opt_l is opt().
+        local optopt is min(optopt,farness(opt_l)).
+        set node:eta to node:eta-dt.
+        set node:eta to node:eta-dt.
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local opt_s is opt().
+        local optopt is min(optopt,farness(opt_s)).
+        set node:eta to node:eta+dt.
+        
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        diag(list(opt_l,opt_,opt_s)).
+        if optopt=farness(opt_){break.}//Nabla approx 0.
+        local del_e is (opt_l-opt_s)/2/dt.
+        local del_mag is abs(del_e).
+        //assert del_mag!=0
+        local del_ee is (opt_l+opt_s-2*opt_)/dt^2.
+        local del_sq is abs(del_ee).
+        //local del_sq is del_
+        local d_e is 0.
+        //for a 3x3 matrix with element max s, the largest eigenvalue musbe have abs(eigen)<=s*3^0.333  (by sauruss's rule)
+        //components of form: radialout, normal, prograde; if vectorized
+        diag ("dele="+del_e).diag ("delsq="+del_sq).
+
+        if tgt="max"{
+            if del_sq=0 {
+                set d_e to del_e/del_mag*stepTmax.
+                diag("del_sq=0").
+            } else{
+                set d_e to min(max(-stepTmax,del_e/del_sq),stepTmax).
+            }
+
+        } else if tgt="min"{
+            if del_sq=0 {
+                set d_e to -del_e/del_mag*stepTmax.
+            } else{
+                set d_e to -min(max(-stepTmax,del_e/del_sq),stepTmax).
+            }
+
+        }else{
+            if del_sq=0 or abs((tgt-opt_)*del_e/del_mag^2)<=abs(del_e/del_sq){
+                set d_e to (tgt-opt_)*del_e/del_mag^2.
+                diag("zerolike").
+            }else{
+                local sgn to choose 1 if tgt>opt_ else -1.
+                set d_e to sgn*min(max(-stepTmax,del_e/del_sq),stepTmax).
+                diag("minmaxlike: "+del_e/del_sq).
+            }
+        }
+        set node:eta to node:eta+d_e.
+        if node:eta<=0 {set node:eta to node:eta+ship:orbit:period.}
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local b is 0.//not the problem
+        from {set b to 0.} until b>=5 or farness(opt())<=farness(opt_) step {set b to b+1.} do {
+            set d_e to d_e/2.
+            set node:eta to node:prograde-d_e.
+            wait 0.
+            if doUpdate {updt().wait 0.}
+        }
+        diag("Optimizing: "+opt()+" DEt: "+d_e).
+
+    }
+
+}
 //next patch util.
 //see: https://github.com/KSP-KOS/KOS/issues/2295  for someone else who is having this problem
 local shipnextpatch is "null".
@@ -368,7 +485,7 @@ local shipnextpatchisvalid is false.
 local shipnextpatchissearching is false.
 local shipnextpatchtimestamp is "null".
 
-function invalidateNextPatch{
+local function invalidateNextPatch{
     parameter timeout is 10.
     set shipnextpatchtimeout to 10.
     set shipnextpatchisvalid to false.
@@ -381,7 +498,7 @@ function invalidateNextPatch{
     }
 
 }
-function getshipnextpatch{
+local function getshipnextpatch{
     parameter timeout is 10.
     if not shipnextpatchissearching and not shipnextpatchisvalid{
         invalidateNextPatch(timeout).
@@ -390,7 +507,7 @@ function getshipnextpatch{
     return shipnextpatch.
 
 }
-function m_exec {
+local function m_exec {
     parameter nd is nextNode.
     parameter error is 0.1.
     parameter throttle_limiter is 1.
@@ -409,7 +526,7 @@ function m_exec {
     local burn_duration to nd:deltav:mag/max_acc.
     print "Crude Estimated burn duration: " + round(burn_duration) + "s".
     local np to nd:deltav. //points to node, don't care about the roll direction.
-    //np is a value copy because the function node:deltav has "get only" access.
+    //np is a value copy because the local function node:deltav has "get only" access.
     //all suffixes in kos have a property called "access" which determines whether they returne value or reference.
     lock steering to np.//TODO steering wont turn with node
 
@@ -510,7 +627,7 @@ function m_exec {
     set warp to 0.
     
 }
-function m_multexec {
+local function m_multexec {
     parameter nds.
     parameter timewarpif is {return true.}.
     parameter endif is {return false.}.//only for last one
@@ -524,7 +641,7 @@ function m_multexec {
         }
     }
 }
-function multnode_changeEta{
+local function multnode_changeEta{
     //changes the eta for each node in a list (structs and structs only are passed by reference).
     //if classes existed, we would make a multinode class for this but we cant (yet?).
     parameter mnode.//reference
@@ -534,18 +651,19 @@ function multnode_changeEta{
     }
 
 }
-function etaNormalNode{
+local function etaNormalNode{
     parameter B is target.
     parameter a_d is +1.//+1 for ascending, -1 for descending.
     parameter returnangle is false.//dont use, use m_rel_inclination() instead
     local tnot is time:seconds.
-    local norm_s is vectorCrossProduct(ship:orbit:position-body:position,ship:velocity:orbit).
+    local norm_s is vectorCrossProduct(ship:orbit:position-ship:body:position,ship:velocity:orbit).
     set norm_s to norm_s/norm_s:mag.
-    local norm_t is vectorCrossProduct(B:orbit:position,B:velocity:orbit).
+    local norm_t is vectorCrossProduct(B:orbit:position-B:body:orbit:position,B:velocity:orbit-B:body:velocity:orbit).
+    diag (norm_t).//TODO nan later
     set norm_t to norm_t/norm_t:mag.
     local vecto is -vectorCrossProduct(norm_t,norm_s)*a_d.
     diag (norm_s).//bugged. should be approx V(0,1,0) or minus
-    diag (norm_t).
+    diag (norm_t).//TODO nan
     diag (vecto:mag).
     local angle is arcSin(vecto:mag). diag("Angle: "+angle).//TODO return
     if(returnangle) return angle.
@@ -573,15 +691,15 @@ function etaNormalNode{
     diag("").
     return eta-(time:seconds-tnot).
     
-}function etaAscendingNode{parameter B is target. return etaNormalNode(B,+1).}
-function etaDescendingNode{parameter B is target. return etaNormalNode(B,-1).}
-function rel_inclination{
+}local function etaAscendingNode{parameter B is target. return etaNormalNode(B,+1).}
+local function etaDescendingNode{parameter B is target. return etaNormalNode(B,-1).}
+local function rel_inclination{
     parameter B is target.
     return etaNormalNode(B,1,true).
 
 }
 
-function closest_approach{
+local function closest_approach{
     parameter T is target.
     parameter nd is nextnode.//dummy node
     parameter overflow is 10.
@@ -597,7 +715,7 @@ function closest_approach{
 
 
 }
-function m_matchInclination{
+local function m_matchInclination{
     parameter B is target.
     parameter soon is false.//if true, go for first node, else go for higher node.
     local angle is rel_inclination(B).
@@ -652,7 +770,7 @@ function m_matchInclination{
     m_exec(nd).
 
 }
-function trim_orbit {
+local function trim_orbit {
     parameter apo.
     parameter per.
     local H_i_p is (ship:apoapsis+ship:body:radius)/(ship:periapsis+ship:body:radius).
@@ -688,7 +806,7 @@ local PHICRIT is 0.6.
 //global manuverTo is {...}
 global correction_time is 0.1.
 
-function manuverTo{
+local function manuverTo{
     if hasnode until not hasNode{remove nextNode.}//clean slate
     //NODE(utime, radial, normal, prograde)
     //manuver into a circular orbit of height ht around body B
@@ -723,7 +841,7 @@ function manuverTo{
     
     local tempnode is Node(time:seconds+nd:eta+nd:orbit:period/2,0,0,0).
     add tempnode.//used as a dummy to find closest approach
-    function hasNext{//to prevent tempnode from messing this up
+    local function hasNext{//to prevent tempnode from messing this up
         return nd:orbit:transition="ENCOUNTER" or tempnode:orbit:transition="ENCOUNTER".
     }
     //T^2=4 pi^2 /mu * a^3
@@ -752,7 +870,7 @@ function manuverTo{
     //     local tovec is -(positionat(ship,time:seconds+nd:eta)-ship:body:position).
     //     set radatvec to getOrbitRadiusAtVec(B,tovec):mag.
     //     return nd:orbit:apoapsis+nd:orbit:body:radius-radatvec.
-    // }.//TODO is slow and not really working, try using H,U functions
+    // }.//TODO is slow and not really working, try using H,U local functions
     //m_opt(nd,apo_op,0,10,0.001,10).//TODO chaotic and not working
     local B_perivec is getPerapsisDirVec(B).//do this once, valid until coords change
     getApproxBurnTo(B,nd,B_perivec).//is very fast, no loops
@@ -784,7 +902,7 @@ function manuverTo{
     local ppsgn is nd:orbit:nextpatch:periapsis-ht.//perapsis is an altitude above sea level
     local loop is 0.
     local first is true.
-    function deta_2 {
+    local function deta_2 {
         if B_isBody and nd:orbit:hasnextpatch{
             local rad is max(d_ht,min(B:soiradius,nd:orbit:nextpatch:periapsis-ht)).
             return ship:orbit:period*(rad/radatvec)/30.
@@ -796,7 +914,7 @@ function manuverTo{
         }
         
     }.
-    function farness{
+    local function farness{
         return choose (nd:orbit:nextpatch:periapsis-ht) if B_isBody and nd:orbit:hasnextpatch
                 else approach.
     }
@@ -826,7 +944,7 @@ function manuverTo{
         set first to false.
     }
     local prevpari is "null".
-    function stop {
+    local function stop {
         if not nds[nds:length-1]:orbit:hasnextpatch{return false.}
         local patch is nds[nds:length-1]:orbit:nextpatch.
         if not prevpari="null" and patch:periapsis-ht-d_ht>0 and patch:periapsis>prevpari {
@@ -835,7 +953,7 @@ function manuverTo{
         set prevpari to patch:periapsis.
         return false.
     }
-    function timewarp {
+    local function timewarp {
         return  not ship:orbit:hasnextpatch.
     }
     m_multexec(nds,timewarp@,choose stop@ if B_isBody else {return false.}).
@@ -863,12 +981,25 @@ function manuverTo{
         wait until warp=0.
     } 
     remove tempnode.
+    unset tempnode.
     local nextpatch is ship:orbit:nextpatch.
+    if not (nextpatch:body=B){
+        local t is time:seconds+eta:transition.
+        warpto(t).
+        wait until time:seconds>t+1.
+        set t to time:secods+eta:transition.
+        warpto(t).
+        wait until time:seconds>t+1.
+    }
     if abs(nextpatch:periapsis-ht)>d_ht{
         local cnd is node(time:seconds+max(ship:orbit:period*correction_time,etanextpatch*(2*correction_time)),0,0,0).
         add cnd.
+        local tempnode is Node(time:seconds+eta:apoapsis,0,0,0).
+        add tempnode.
         wait 0.
-        m_opt(cnd,{return cnd:orbit:nextpatch:periapsis-ht.}).
+        m_opt(cnd,{return choose cnd:orbit:nextpatch:periapsis-ht if cnd:orbit:transition="ENCOUNTER"//encounter what?
+                else closest_approach(B,tempnode).}).
+            //TODO for a small moon like minmus, encounter can be easily lost, 
         m_exec(cnd,0.01,0.2).
     }
     //important: warpto does not also wait in program.
@@ -889,7 +1020,65 @@ function manuverTo{
     return true.
 
 }
-function testpatch {
+local function plungeTo {//works, including changes to normalnode which now work SOI independantly
+    if hasnode until not hasNode{remove nextNode.}//clean slate
+    parameter ht.
+    parameter d_ht is 2000.//uncertainty of 2km
+    parameter circularize is false.
+    
+    local B is ship:body.
+    local B_isBody is true.
+    
+    if (rel_inclination(B)>0.1){m_matchInclination(B).}//should work even for bodies not in same soi.
+    local t is time:seconds+ship:orbit:period.
+    local v_B is (B:velocity:orbit-B:body:velocity:orbit):mag.//orbit vel of moon around body
+    local R_i is (B:position-B:body:position):mag.
+    local sgn is (ht-R_i)/abs(ht-R_i).
+    local v_B_c is sqrt(B:body:mu/(B:position-B:body:position):mag).
+    local vf is v_B_c*(U((B:body:radius+ht)/R_i)-(V_B/v_B_c)).
+    local nd is node(time:seconds+orbit:period,0,0,0).
+    add nd.
+    local upd is {
+        getApproxBurnToVelocity(vf,nd).
+    }.
+    local opt is {
+        return choose nd:orbit:nextpatch:periapsis if nd:orbit:transition="ESCAPE"
+                else (B:soiradius-nd:orbit:apoapsis)*sgn+R_i.//not good but lets see
+    }.
+    
+    upd().
+    m_opt_eta(nd,opt,ht,upd).
+    if not (nd:orbit:transition="ESCAPE") until (nd:orbit:transition="ESCAPE") {
+        set nd:eta to nd:eta+ship:orbit:period.
+        wait 0.
+    }
+    m_exec(nd).
+    local t is time:seconds+eta:transition.
+    warpto(t).
+    wait until time:seconds>t+1.
+    if (ship:orbit:transition="ENCOUNTER") and  (eta:transition<=eta:periapsis){
+        until not(ship:orbit:transition="ENCOUNTER") and  not(eta:transition<=eta:periapsis){
+            local tt is time:seconds+eta:transition.
+            warpto(t).
+            wait until time:seconds>t+1.
+            set tt to time:seconds+eta:transition.
+            warpto(t).
+            wait until time:seconds>t+1.
+        }
+    }
+    local cnd is node(time:seconds+eta:periapsis/2,0,0,0).
+    add cnd.
+    local opt2 is {return cnd:orbit:periapsis.}.
+    wait 0.
+    m_opt(cnd,opt2,ht).
+    if cnd:deltav:mag<0.01{remove cnd.}
+    else {
+        m_exec(cnd,0.01,0.2).
+    }
+    print "plunge manuver from "+B:name+" to periapsis of "+ship:orbit:periapsis+" above "+ship:body:name+" complete.".
+
+}
+local function testpatch {
     local frame_out is "".
     local nframe is 100.
     local dt is 0.02.
@@ -937,7 +1126,7 @@ if debug{
     if false {//big success
         local nd is nextNode.
         local ht is 30000.
-        function err{
+        local function err{
             return nd:orbit:nextpatch:periapsis-ht.
         }
         m_opt(nd,err@).//TODO impose restrictions that work.
@@ -964,15 +1153,22 @@ if debug{
             wait 1.
         }
     }
-    if true {manuverto (0,target,10).}
+    if false {manuverto (0,target,10).}
     if false {//big success
         until false {
             print getOrbitRadiusAtVec(target,-body:position):mag.
             wait 1.
         }
     }
+    if false {m_opt_eta(nextnode,{return nextnode:orbit:apoapsis.},"max").}//big success
+
+    if false {plungeTo(20000).}
     //ship is a Vessel, mun is a Body. TODO add support for docking manuvers
 }
-//TODO when finished create delegates for library
+//even though we dont have to do this, it is a good idea because we can rename then to avoid nameing conflicts
+//all of these shoud have a prefix manuver_ (could later change to m_ but m_exec already uses it. maybe mnv_)
 global manuver_toInSOI is manuverTo@.//TODO non moon support
+global manuver_plungeFromSOI is plungeTo@.
+global manuver_trimOrbit is trim_orbit@.
+global manuver_matchInclination is m_matchInclination@.
 
