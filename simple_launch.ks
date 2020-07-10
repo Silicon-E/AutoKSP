@@ -1,5 +1,6 @@
 RUNONCEPATH("0:/AutoKSP/lib_ship.ks").
 RUNONCEPATH("0:/AutoKSP/lib_orbit.ks").
+RUNONCEPATH("0:/AutoKSP/lib_body.ks").
 
 declare parameter ORBIT_ALT to -1.
 
@@ -55,7 +56,7 @@ if SHIP:UP:VECTOR * SHIP:SRFPROGRADE:VECTOR > 0.707 {
 print "  Turn to prograde.".
 unlock STEERING.
 SAS on.
-wait 0.
+wait 0.001.
 set SASMODE to "prograde". // BUG: This intermittently does not set the mode to prograde.
 wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000.
 if SHIP:ORBIT:BODY:ATM:EXISTS and SHIP:ALTITUDE <= SHIP:ORBIT:BODY:ATM:HEIGHT {
@@ -77,23 +78,6 @@ lock THROTTLE to 0.
 unlock THROTTLE.
 set SHIP:CONTROL:MAINTHROTTLE to 0.
 SAS off.
-
-function PRESSURE_TO_ALT {
-	declare parameter PRESS.
-	declare parameter ATMOS.
-	declare RESULT to ATMOS:HEIGHT / 2.
-	// Find the altitude where the pressure is closest to PRESS:
-	from {declare I to 0.} until I>=8 step {set I to I+1.} do {
-		if SHIP:ORBIT:BODY:ATM:ALTITUDEPRESSURE(RESULT) = PRESS {
-			return RESULT.
-		} else if SHIP:ORBIT:BODY:ATM:ALTITUDEPRESSURE(RESULT) > PRESS { // Alt too low
-			set RESULT to RESULT + ATMOS:HEIGHT*0.5^(I+1).
-		} else { // Alt too high
-			set RESULT to RESULT - ATMOS:HEIGHT*0.5^(I+1).
-		}
-	}
-	return RESULT.
-}
 
 function LERP {
 	declare parameter A.
