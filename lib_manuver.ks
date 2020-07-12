@@ -1014,6 +1014,15 @@ local function manuverTo{
         m_exec(cnd,0.01,0.2).
 		// TODO: remove tempnode.
     }
+	
+	// TEMP: manual override opportunity
+	unlock steering.
+	unlock throttle.
+	print "Press any key to continue autonomously.".
+	terminal:input:clear.
+	wait until terminal:input:haschar.
+	terminal:input:clear.
+	
     //important: warpto does not also wait in program.
 	set warpmode to "rails".
     warpto(time:seconds+ship:orbit:nextpatcheta).

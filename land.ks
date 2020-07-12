@@ -26,7 +26,7 @@ if not GEAR {
 // Decide whether to do a landing burn. Based on whether there are engines and fuel. TODO: If in atmo, determine if engines are needed.
 local MY_ENGINES is LIST().
 list ENGINES in MY_ENGINES.
-local IS_POWERED_DESCENT is MY_ENGINES:LENGTH>0 and LIQUIDFUEL>0 and OXIDIZER>0.
+local IS_POWERED_DESCENT is MY_ENGINES:LENGTH>0 and SHIP:LIQUIDFUEL>0 and SHIP:OXIDIZER>0.
 
 local SHIP_BOUNDS is SHIP:BOUNDS.
 // Add the height of the ship up to its center to the fudge altitude. Z axis is vertical in bounds reference frame.
