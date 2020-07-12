@@ -8,7 +8,12 @@ RUNONCEPATH("0:/AutoKSP/lib_ship.ks").
 local SAFETY_ALT_FUDGE is 0. // How far up to bias the target altitude
 
 // ==================== LANDING START ====================
-if SHIP:ORBIT:PERIAPSIS > 0 {
+if SHIP:ORBIT:BODY:ATM:EXISTS and SHIP:ORBIT:PERIAPSIS <= SHIP:ORBIT:BODY:ATM:HEIGHT {
+	print "Wait for aerocapture.".
+	lock STEERING to SHIP:SRFRETROGRADE.
+	wait until SHIP:ORBIT:APOAPSIS <= SHIP:ORBIT:BODY:ATM:HEIGHT.
+	unlock STEERING.
+} else if SHIP:ORBIT:PERIAPSIS > 0 {
 	print "FAIL: Cannot begin landing on "+SHIP:ORBIT:BODY:NAME+"; periapsis is greater than 0!".
 	print "  Force crash.".
 	local ERR is 1/0.
@@ -18,35 +23,51 @@ if not GEAR {
 	set GEAR to TRUE.
 	wait 2.5.
 }
+// Decide whether to do a landing burn. Based on whether there are engines and fuel. TODO: If in atmo, determine if engines are needed.
+local MY_ENGINES is LIST().
+list ENGINES in MY_ENGINES.
+local IS_POWERED_DESCENT is MY_ENGINES:LENGTH>0 and LIQUIDFUEL>0 and OXIDIZER>0.
+
 local SHIP_BOUNDS is SHIP:BOUNDS.
 // Add the height of the ship up to its center to the fudge altitude. Z axis is vertical in bounds reference frame.
 set SAFETY_ALT_FUDGE to SAFETY_ALT_FUDGE + ((-SHIP_BOUNDS:ABSORIGIN)*SHIP_BOUNDS:FACING:INVERSE):Z - SHIP_BOUNDS:RELMIN:Z.
 local BURN_START_TIME is TIME:SECONDS + 10_000.
-set BURN_START_TIME to ESTIMATE_PATH().
+if IS_POWERED_DESCENT {
+	set BURN_START_TIME to ESTIMATE_PATH().
+}
 unlock STEERING.
 SAS on.
 wait 1.
 set SASMODE to "retrograde".
 set NAVMODE to "surface".
-lock THROTTLE to TIME:SECONDS >= BURN_START_TIME.
 local SHOULD_END is FALSE.
-when TIME:SECONDS >= BURN_START_TIME then {
-	wait until SHIP:VELOCITY:SURFACE:MAG < 10.
-	// Cleanup:
-	wait 0.
-	for N in ALLNODES {
-		remove N.
+if SHIP:ORBIT:BODY:ATM:EXISTS {
+	// Gradually deploys chutes as speed drops:
+	when (not CHUTESSAFE) then {
+		CHUTESSAFE on.
+		return (not CHUTES).
 	}
-	lock THROTTLE to 0.
-	unlock THROTTLE.
-	// Simple Landing:
-	runpath("0:/AutoKSP/simple_land.ks").
-	set SHOULD_END to TRUE.
 }
-until TIME:SECONDS >= BURN_START_TIME or SHOULD_END {
-	local NEW_START_TIME is ESTIMATE_PATH(40).
-	if not (TIME:SECONDS >= BURN_START_TIME) {
-		set BURN_START_TIME to NEW_START_TIME.
+if IS_POWERED_DESCENT {
+	lock THROTTLE to TIME:SECONDS >= BURN_START_TIME.
+	when TIME:SECONDS >= BURN_START_TIME then {
+		wait until SHIP:VELOCITY:SURFACE:MAG < 10.
+		// Cleanup:
+		wait 0.
+		for N in ALLNODES {
+			remove N.
+		}
+		lock THROTTLE to 0.
+		unlock THROTTLE.
+		// Simple Landing:
+		runpath("0:/AutoKSP/simple_land.ks").
+		set SHOULD_END to TRUE.
+	}
+	until TIME:SECONDS >= BURN_START_TIME or SHOULD_END {
+		local NEW_START_TIME is ESTIMATE_PATH(40).
+		if not (TIME:SECONDS >= BURN_START_TIME) {
+			set BURN_START_TIME to NEW_START_TIME.
+		}
 	}
 }
 wait until SHOULD_END.

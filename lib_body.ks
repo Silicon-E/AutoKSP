@@ -4,12 +4,12 @@ global PRESSURE_TO_ALT is {
 	declare RESULT to ATMOS:HEIGHT / 2.
 	// Find the altitude where the pressure is closest to PRESS:
 	from {declare I to 0.} until I>=16 step {set I to I+1.} do {
-		if SHIP:ORBIT:BODY:ATM:ALTITUDEPRESSURE(RESULT) = PRESS {
+		if ATMOS:ALTITUDEPRESSURE(RESULT) = PRESS {
 			return RESULT.
-		} else if SHIP:ORBIT:BODY:ATM:ALTITUDEPRESSURE(RESULT) > PRESS { // Alt too low
-			set RESULT to RESULT + ATMOS:HEIGHT*0.5^(I+1).
+		} else if ATMOS:ALTITUDEPRESSURE(RESULT) > PRESS { // Alt too low
+			set RESULT to RESULT + ATMOS:HEIGHT*0.5^(I+2).
 		} else { // Alt too high
-			set RESULT to RESULT - ATMOS:HEIGHT*0.5^(I+1).
+			set RESULT to RESULT - ATMOS:HEIGHT*0.5^(I+2).
 		}
 	}
 	return RESULT.

@@ -1,4 +1,4 @@
-runoncepath("0:/AutoKSP/lib_manuver.ks", true).
+runoncepath("0:/AutoKSP/lib_manuver.ks", false).
 
 parameter desired_height.
 parameter desired_body is target.

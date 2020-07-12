@@ -1,5 +1,6 @@
 RUNONCEPATH("0:/AutoKSP/lib_ship.ks").
 RUNONCEPATH("0:/AutoKSP/lib_orbit.ks").
+RUNONCEPATH("0:/AutoKSP/lib_body.ks").
 
 global AUTOKSP_CANAEROBRAKE is false. // Set by scripts using AutoKSP
 
