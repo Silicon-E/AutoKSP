@@ -11,7 +11,7 @@ global PRESSURE_TO_AVAILABLE_FUEL_FLOW is {
 	local RESULT is 0.
 	list ENGINES in ENGS. // Impossible to directly access the engine list. Have to use this syntax. Uuuuuuuugghh...
 	for ENG in ENGS {
-		set RESULT to RESULT + ENG:AVAILABLETHRUSTAT(PRESS) / (ENG:ISPAT(PRESS) * 9.80665).
+		set RESULT to RESULT + (choose 0 if ENG:ISPAT(PRESS)=0 else ENG:AVAILABLETHRUSTAT(PRESS) / (ENG:ISPAT(PRESS) * 9.80665)).
 	}
 	return RESULT.
 }.
@@ -20,7 +20,7 @@ global AVAILABLE_FUEL_FLOW is {
 	local RESULT is 0.
 	list ENGINES in ENGS. // Impossible to directly access the engine list. Have to use this syntax. Uuuuuuuugghh...
 	for ENG in ENGS {
-		set RESULT to RESULT + ENG:AVAILABLETHRUST / (ENG:ISP * 9.80665).
+		set RESULT to RESULT + (choose 0 if ENG:ISP=0 else ENG:AVAILABLETHRUST / (ENG:ISP * 9.80665)).
 	}
 	return RESULT.
 }.

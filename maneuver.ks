@@ -1,8 +1,9 @@
-runoncepath("0:/AutoKSP/lib_manuver.ks").
+runoncepath("0:/AutoKSP/lib_manuver.ks", true).
 
 parameter desired_height.
 parameter desired_body is target.
 parameter height_margin is 2000.
+parameter should_circularize is true.
 
 print "Begin transfer manuever to "+desired_body:name+".".
 print "  Desired altitude: "+desired_height.
@@ -14,12 +15,17 @@ when SHIP:MAXTHRUST = 0 THEN {
 	return not(STAGE:NUMBER = 0). // Preserve this trigger unless we ran out of stages.
 }
 
-if desired_body = -1 {
-	manuverTo(desired_height).
-} else if height_margin = -1 {
-	manuverTo(desired_height, desired_body).
-} else {
-	manuverTo(desired_height, desired_body, height_margin).
+// If going to current body's parent
+if desired_body = ship:body:body {
+	manuver_plungeFromSOI(desired_height, height_margin, should_circularize).
+} else { // Else, perform a transfer
+	if desired_body = -1 {
+		manuver_toInSOI(desired_height).
+	} else if height_margin = -1 {
+		manuver_toInSOI(desired_height, desired_body).
+	} else {
+		manuver_toInSOI(desired_height, desired_body, height_margin).
+	}
 }
 
 until ship:body = desired_body {

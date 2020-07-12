@@ -1,12 +1,15 @@
 RUNONCEPATH("0:/AutoKSP/lib_ship.ks").
 RUNONCEPATH("0:/AutoKSP/lib_orbit.ks").
 
+global AUTOKSP_CANAEROBRAKE is false. // Set by scripts using AutoKSP
+
 // Takes this ship from wherever it currently is in the solar system to a target orbit around a specified body.
 global GO_TO_ORBIT is {
-	declare parameter PLANET.
-	declare parameter PERI.
-	declare parameter APO.
-	local MARGIN is 1000.
+	declare parameter PLANET is SHIP:ORBIT:BODY.
+	declare parameter PERI is LOWEST_SAFE_ORBIT_ALT(PLANET).
+	declare parameter APO is LOWEST_SAFE_ORBIT_ALT(PLANET).
+	parameter MARGIN is 1000.
+	parameter SHOULD_CIRCULARIZE is TRUE.
 	
 	print "Begin going to orbit around "+PLANET:NAME+".".
 	print "  Target periapsis: "+PERI.
@@ -34,7 +37,7 @@ global GO_TO_ORBIT is {
 				print "In a non-ideal orbit. No orbit adjustment script is working; continuing without adjusting orbit...".
 				break.
 			} else {
-				RUNPATH("0:/AutoKSP/maneuver.ks", APO, PLANET, MARGIN).
+				RUNPATH("0:/AutoKSP/maneuver.ks", APO, PLANET, MARGIN, SHOULD_CIRCULARIZE).
 			}
 		}
 	}
@@ -52,8 +55,15 @@ global GO_TO_SURFACE is {
 	print "Begin going to the surface of "+PLANET:NAME+".".
 	until SHIP:ORBIT:BODY=PLANET and SHIP:BOUNDS:BOTTOMALTRADAR < 0.1 {
 		if NOT(SHIP:ORBIT:BODY=PLANET) {
-			local ORBIT_ALT is LOWEST_SAFE_ORBIT_ALT(PLANET).
-			GO_TO_ORBIT(PLANET, ORBIT_ALT, ORBIT_ALT).
+			// If going to the surface of our current body's parent AND the parent has an atmosphere, perform an aerocapture.
+			if PLANET = SHIP:BODY:BODY and PLANET:ATM:EXISTS and AUTOKSP_CANAEROBRAKE {
+				print "Aim for aerocapture.".
+				local ORBIT_ALT is PRESSURE_TO_ALT(KERBIN:ATM:ALTITUDEPRESSURE(30_000), PLANET:ATM).
+				GO_TO_ORBIT(PLANET, ORBIT_ALT, ORBIT_ALT, 1000, FALSE). // Don't circularize
+			} else { // Otherwise, do a normal orbital insertion
+				local ORBIT_ALT is LOWEST_SAFE_ORBIT_ALT(PLANET).
+				GO_TO_ORBIT(PLANET, ORBIT_ALT, ORBIT_ALT).
+			}
 		} else if SHIP:ORBIT:PERIAPSIS>0 and SHIP:ORBIT:APOAPSIS>0 {
 			runpath("0:/AutoKSP/goto_clear_path.ks", SHIP:RETROGRADE:VECTOR).
 			runpath("0:/AutoKSP/deorbit.ks").

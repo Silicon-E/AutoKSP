@@ -38,6 +38,7 @@ when SHIP:MAXTHRUST = 0 THEN {
 
 // ==================== LAUNCH START ====================
 SAS off.
+set NAVMODE to "surface".
 lock STEERING to SHIP:UP:VECTOR.
 lock THROTTLE to 1.
 set GEAR to FALSE.
@@ -54,10 +55,7 @@ if SHIP:UP:VECTOR * SHIP:SRFPROGRADE:VECTOR > 0.707 {
 	wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000  or  SHIP:UP:VECTOR * SHIP:SRFPROGRADE:VECTOR <= 0.707.
 }
 print "  Turn to prograde.".
-unlock STEERING.
-SAS on.
-wait 0.001.
-set SASMODE to "prograde". // BUG: This intermittently does not set the mode to prograde.
+lock STEERING to choose SHIP:PROGRADE if NAVMODE="orbit" else SHIP:SRFPROGRADE.
 wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000.
 if SHIP:ORBIT:BODY:ATM:EXISTS and SHIP:ALTITUDE <= SHIP:ORBIT:BODY:ATM:HEIGHT {
 	print "  Maintain target apoapsis...".

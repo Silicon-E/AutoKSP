@@ -537,6 +537,7 @@ local function m_exec {
 
     //the ship is facing the right direction, let's wait for our burn time
     local w is time:seconds+nd:eta-(burn_duration/2)-10.
+	set warpmode to "rails".
     warpto(w).
     wait until nd:eta <= (burn_duration/2)-9.
     lock steering to np.//wake up, TODO doesnt work but is ok without it
@@ -813,6 +814,7 @@ local function manuverTo{
     parameter ht.
     parameter B is target.
     parameter d_ht is 2000.//uncertainty of 2km
+	parameter circularize is true.
     //set target to B.
     local B_isBody is (B:typename="Body").
     if (rel_inclination(B)>0.1){
@@ -915,6 +917,10 @@ local function manuverTo{
         
     }.
     local function farness{
+		diag("periapsis"+(choose (nd:orbit:nextpatch:periapsis) if (B_isBody and nd:orbit:hasnextpatch)
+                else "none")).//added maybe temp
+		diag("farness"+(choose (nd:orbit:nextpatch:periapsis-ht) if B_isBody and nd:orbit:hasnextpatch
+                else approach)).//added maybe temp
         return choose (nd:orbit:nextpatch:periapsis-ht) if B_isBody and nd:orbit:hasnextpatch
                 else approach.
     }
@@ -974,6 +980,7 @@ local function manuverTo{
         }
     }
 
+	set warpmode to "rails".
     local etanextpatch is ship:orbit:nextpatcheta.//this is the correct form
     if etanextpatch>ship:orbit:period
     {
@@ -997,24 +1004,32 @@ local function manuverTo{
         local tempnode is Node(time:seconds+eta:apoapsis,0,0,0).
         add tempnode.
         wait 0.
-        m_opt(cnd,{return choose cnd:orbit:nextpatch:periapsis-ht if cnd:orbit:transition="ENCOUNTER"//encounter what?
-                else closest_approach(B,tempnode).}).
+        m_opt(cnd,{
+			//diag("periapsis: "+(choose cnd:orbit:nextpatch:periapsis-ht if cnd:orbit:transition="ENCOUNTER"//encounter what?
+                //else "none")).
+			return choose cnd:orbit:nextpatch:periapsis-ht if cnd:orbit:transition="ENCOUNTER"//encounter what?
+                else closest_approach(B,tempnode).}
+				,0,10,0.001,300).
             //TODO for a small moon like minmus, encounter can be easily lost, 
         m_exec(cnd,0.01,0.2).
+		// TODO: remove tempnode.
     }
     //important: warpto does not also wait in program.
+	set warpmode to "rails".
     warpto(time:seconds+ship:orbit:nextpatcheta).
     wait until warp=0.
     diag ("Target body: "+B:tostring()).
     diag ("Current body: "+ship:body:tostring()).
     wait until ship:orbit:body:tostring()=B:tostring().
     //cannot find eta's for a later patch
-    local vi2 is velocityat(SHIP, time:seconds +eta:periapsis):orbit:mag.
-    diag ("Entry eccentricity:="+ship:orbit:eccentricity).
-    local Ul is U_e(ship:orbit:eccentricity).
-    local nd2 is node(time:seconds+eta:periapsis,0,0,(1/Ul-1)*vi2).
-    add nd2.
-    m_exec().//(parameter is nd2)
+	if circularize {
+		local vi2 is velocityat(SHIP, time:seconds +eta:periapsis):orbit:mag.
+		diag ("Entry eccentricity:="+ship:orbit:eccentricity).
+		local Ul is U_e(ship:orbit:eccentricity).
+		local nd2 is node(time:seconds+eta:periapsis,0,0,(1/Ul-1)*vi2).
+		add nd2.
+		m_exec().//(parameter is nd2)
+	}
     wait 3.
     print "Manuvering to orbit arround "+dquote +B:tostring+dquote+" is finished.".
     return true.
@@ -1054,6 +1069,7 @@ local function plungeTo {//works, including changes to normalnode which now work
     }
     m_exec(nd).
     local t is time:seconds+eta:transition.
+	set warpmode to "rails".
     warpto(t).
     wait until time:seconds>t+1.
     if (ship:orbit:transition="ENCOUNTER") and  (eta:transition<=eta:periapsis){
