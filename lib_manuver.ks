@@ -45,9 +45,42 @@ local function orbitPolar{
     return orb:semimajoraxis*(1-orb:eccentricity^2)/(1+orb:eccentricity*cos(tanm)).
     
 }
+local function orbitTimeToAng{
+    parameter orb.
+    parameter tan_i.//true anomalies
+    parameter tan_f.
+    local tanimod is mod(tan_i,360).
+    set tan_f to tan_f+tanimod-tan_i.
+    set tan_i to tanimod.//modness tan_i
+    //local L is vCrs(orb:position()-orb:body:position,orb:velocity:orbit-orb:body:velocity:orbit).
+    local F is v(2*orbit:semimajoraxis*orbit:eccentricity,0,0).
+    local Ar is orbitPolar(orb,tan_i).
+    local A is v(-cos(tan_i)*Ar,-sin(tan_i)*Ar,0).
+    local Br is orbitPolar(orb,tan_f).
+    local B is v(-cos(tan_f)*Br,-sin(tan_f)*Br,0).
+    local t0 is vang((A-F),(B-F))/360*orbit:period.
+    //local tan_c is 0.
+    local sgn is 1.
+    if (exclude((B-F),B)*A)>(exclude((B-F),A)*A){
+        if tan_i>180 {set sgn to -1.}
+    } else if tan_i<180 {set sgn to -1.}
+    if tan_i=180 {set sgn to (tan_f-tan_i)/abs(tan_f-tan_i).}
+    local nobs is (tan_f-tan_i-mod(tan_f-tan_i,360))/360.
+    return nobs*orb:period+mod(t0*sgn,orb:period).
+
+}
 local function diag{parameter s_.
     if debug{
         print s_.
+    }
+}
+local function breakpoint{parameter s_.
+    if debug{
+        //cannot pause from kos but could quicksave and then quickload later.
+        print "breakpoint: "+s_+"; press any key to continue".
+        terminal:input:clear.
+        wait until terminal:input:haschar.
+        terminal:input:clear.
     }
 }
 local function getPerapsisDirVec_broken_dontuse {//this is impossible, dont use
@@ -238,6 +271,7 @@ local function m_opt {
     parameter stepVmax is 10.
     parameter dv is 0.001.
     parameter overflow is 100.
+    parameter supressOverflow is {return false.}.
     local function farness {
         parameter optval.
         if tgt="min"{
@@ -249,7 +283,7 @@ local function m_opt {
             return abs(tgt-optval).
         }
     }
-    from {local a is 0.} until a>=overflow step {set a to a+1.} do {
+    from {local a is 0.} until (a>=overflow) and not supressOverflow() step {set a to a+1.} do {
         local opt_ is opt().
         local optopt is farness(opt_).
         set node:prograde to node:prograde+dv.
@@ -370,9 +404,25 @@ local function m_opt {
         set node:prograde to node:prograde+d_p.
         set node:radialout to node:radialout+d_o.
         set node:normal to node:normal+d_n.
+        local d_mag is sqrt(d_p^2+d_o^2+d_n^2).
         wait 0.
         local b is 0.//not the problem
-        from {set b to 0.} until b>=5 or farness(opt())<=farness(opt_) step {set b to b+1.} do {
+        //used to be until b>=5
+        if not (farness(opt())<=farness(opt_)) and d_mag<dv and d_mag>0{
+            set node:prograde to node:prograde-d_p.
+            set node:radialout to node:radialout-d_o.
+            set node:normal to node:normal-d_n.
+
+            set d_p to d_p*dv/d_mag.
+            set d_o to d_o*dv/d_mag.
+            set d_n to d_n*dv/d_mag.
+
+            set node:prograde to node:prograde+d_p.
+            set node:radialout to node:radialout+d_o.
+            set node:normal to node:normal+d_n.
+            wait 0.
+        }
+        if not (farness(opt())<=farness(opt_)) from {set b to 0.} until b>=3 or farness(opt())<=farness(opt_) step {set b to b+1.} do {
             set d_p to d_p/2.
             set d_o to d_o/2.
             set d_n to d_n/2.
@@ -537,7 +587,6 @@ local function m_exec {
 
     //the ship is facing the right direction, let's wait for our burn time
     local w is time:seconds+nd:eta-(burn_duration/2)-10.
-	set warpmode to "rails".
     warpto(w).
     wait until nd:eta <= (burn_duration/2)-9.
     lock steering to np.//wake up, TODO doesnt work but is ok without it
@@ -806,7 +855,101 @@ local PHICRIT is 0.6.
 //to make delagate to anonamous
 //global manuverTo is {...}
 global correction_time is 0.1.
+local function dockApproach {
+    parameter B.//is not a body
+    parameter t.//encounter time
+    parameter D is 100.//buffer arround craft
 
+    print "docking approach".
+    //breakpoint("docking_approach").
+    local dv is velocityAt(ship,t):orbit-velocityAt(B,t):orbit.
+    local dr is positionAt(ship,t)-positionAt(B,t).
+    if dr:mag>2000 {
+        //second correction
+        local timeto is 0.
+        local timetomnv is 0.7.
+        local cnd is node((time:seconds*(1-timetomnv)+t*timetomnv),0,0,0).
+        add cnd.
+        local tempnode is Node(t,0,0,0).
+        add tempnode.
+        wait 0.
+        m_opt(cnd,{return closest_approach(B,tempnode).}).
+           //PULL extra args
+            //TODO for a small moon like minmus, encounter can be easily lost, 
+        m_exec(cnd,0.01,0.2).
+        //set approach to closest_approach(B,tempnode).
+        set t to tempnode:eta+time:seconds.
+        diag("timeto-time: "+(timeto-time:seconds)).
+        remove tempnode.
+    
+    }
+    
+    set dv to velocityAt(ship,t):orbit-velocityAt(B,t):orbit.
+    set dr to positionAt(ship,t)-positionAt(B,t).
+    diag("dtto: "+(t-time:seconds)).
+    diag("dv: "+(dv:mag)).
+    local ts is ship:mass/ship:maxThrust*dv:mag/2+
+        (choose 0 if dr:mag>=D else sqrt(D^2-dr:sqrmagnitude))/dv:mag.
+    diag("ts: "+ts).
+    lock steering to -dv.
+    local turnt is time:seconds.
+    wait until vang(ship:facing:vector,dv)<0.1 or dv:mag<1 or time:seconds>turnt+10.
+    warpto(t-ts-5).
+    wait until time:seconds>t-ts-4.
+    diag("dtto2: "+(t-time:seconds)).
+    wait until warp=0.
+    local quit is false.
+    local tset is 0.
+    local max_acc to ship:maxthrust/ship:mass.
+    until quit {
+        local rt is ship:position-B:position.
+        local vt is ship:velocity:orbit-B:velocity:orbit.
+        local rc is vectorexclude(vt,rt).
+        local ts is ship:mass/ship:maxThrust*vt:mag/2+
+        (choose 0 if rc:mag>=D else sqrt(D^2-rc:sqrmagnitude))/dv:mag.
+        set max_acc to ship:maxthrust/ship:mass.
+        set tset to min(vt:mag/max_acc, 1).
+        local stop to (choose 1 if ts*vt:mag>(rt:mag-D-rc:mag) else 0).
+        if rt:mag>D and ((rt:mag/vt:mag>ship:orbit:period*PHICRIT/20)or vt:mag<1){
+            local crs is vectorExclude(rt,vt):mag/max(vt:mag,0.1).
+            lock steering to -rt:normalized-rc:normalized*min(0.5,crs).
+            lock throttle to tset.
+        }
+        else if (rc:mag>=D){
+            local acrs is 2*rc:mag/max(ts*2,1)^2.
+            if acrs>max_acc/2 {set acrs to max_acc/2.}
+            lock steering to -vt:normalized-rc:normalized*(acrs/max_acc).
+            lock throttle to min(tset*stop*sqrt(1+acrs^2/max_acc^2),1).
+        }else {
+            lock steering to -vt.
+            lock throttle to tset*stop.
+        } if (vt:mag<0.1 or ship:facing:vector*vt>0) and rt:mag<=D{
+            set quit to true.
+        }
+        if vang(steeringManager:target:vector,ship:facing:vector)>10{
+            lock throttle to 0.
+        }
+
+    }
+    local vt to ship:velocity:orbit-B:velocity:orbit.
+    lock steering to -vt.
+    wait 10.
+    local th is vt:mag/ship:maxThrust*ship:mass.
+    if vt:mag>1{lock throttle to min(th,1).}
+    wait until (ship:facing:vector*(ship:velocity:orbit-B:velocity:orbit)>0).
+    lock throttle to 0.
+    wait 1.
+    unlock steering.
+    unlock throttle.
+    wait 1.
+
+    //set throttle to 0 just in case.
+    SET SHIP:CONTROL:PILOTMAINTHROTTLE TO 0.
+    set warpmode to "RAILS".
+    set warp to 0.
+    print "docking approach finished.".
+    return true.
+}
 local function manuverTo{
     if hasnode until not hasNode{remove nextNode.}//clean slate
     //NODE(utime, radial, normal, prograde)
@@ -814,7 +957,6 @@ local function manuverTo{
     parameter ht.
     parameter B is target.
     parameter d_ht is 2000.//uncertainty of 2km
-	parameter circularize is true.
     //set target to B.
     local B_isBody is (B:typename="Body").
     if (rel_inclination(B)>0.1){
@@ -917,10 +1059,6 @@ local function manuverTo{
         
     }.
     local function farness{
-		diag("periapsis"+(choose (nd:orbit:nextpatch:periapsis) if (B_isBody and nd:orbit:hasnextpatch)
-                else "none")).//added maybe temp
-		diag("farness"+(choose (nd:orbit:nextpatch:periapsis-ht) if B_isBody and nd:orbit:hasnextpatch
-                else approach)).//added maybe temp
         return choose (nd:orbit:nextpatch:periapsis-ht) if B_isBody and nd:orbit:hasnextpatch
                 else approach.
     }
@@ -953,9 +1091,11 @@ local function manuverTo{
     local function stop {
         if not nds[nds:length-1]:orbit:hasnextpatch{return false.}
         local patch is nds[nds:length-1]:orbit:nextpatch.
-        if not prevpari="null" and patch:periapsis-ht-d_ht>0 and patch:periapsis>prevpari {
+        if (not prevpari="null") and (patch:periapsis-ht-d_ht>0) and (patch:periapsis>prevpari) {
             return true.
         }
+        if abs(patch:periapsis-ht)<d_ht {return true.}
+        if patch:periapsis<ht {return true.}//a bit more aggressive, maybe comment
         set prevpari to patch:periapsis.
         return false.
     }
@@ -966,12 +1106,18 @@ local function manuverTo{
     //if orbit is after a period or more, ksp will change its mind each frame whether it exists. check many frames
     //RAILS timewarp can freeze nextnode existance even if just activated for a little bit
     local apprtime is tempnode:eta+time:seconds.
-    if not B_isbody {remove tempnode.}
+    local etanextpatch is "none".
+    local dv is 0.001.
+    if not B_isbody {
+        set approach to closest_approach(B,tempnode).
+        remove tempnode. set etanextpatch to tempnode:eta.}
+        //set dv to 0.0001.
+    
     unset tempnode.
     local tempnode is node(time:seconds+ship:orbit:period*correction_time,0,0,0).
     add tempnode.
     local orbitmax is 10.
-    print "docking diverges here".//it works up to this point
+    print "docking used to diverge here".//it works up to this point
     if B_isbody from {local a is 0.} until tempnode:orbit:hasnextpatch step {set a to a+1.} do {
         set tempnode:eta to tempnode:eta+ship:orbit:period.
         if a>orbitmax {
@@ -980,17 +1126,17 @@ local function manuverTo{
         }
     }
 
-	set warpmode to "rails".
-    local etanextpatch is ship:orbit:nextpatcheta.//this is the correct form
+    if B_isBody {set etanextpatch to ship:orbit:nextpatcheta.}//this is the correct form
     if etanextpatch>ship:orbit:period
     {
         warpto(time:seconds+(etanextpatch-ship:orbit:period*(0.5+correction_time))).
         wait until warp=0.
-    } 
+    }
     remove tempnode.
     unset tempnode.
-    local nextpatch is ship:orbit:nextpatch.
-    if not (nextpatch:body=B){
+    local nextpatch is "none".
+    if B_isBody{set nextpatch to ship:orbit:nextpatch.}
+    if B_isbody and not (nextpatch:body=B){
         local t is time:seconds+eta:transition.
         warpto(t).
         wait until time:seconds>t+1.
@@ -998,47 +1144,48 @@ local function manuverTo{
         warpto(t).
         wait until time:seconds>t+1.
     }
-    if abs(nextpatch:periapsis-ht)>d_ht{
-        local cnd is node(time:seconds+max(ship:orbit:period*correction_time,etanextpatch*(2*correction_time)),0,0,0).
+    local timeto is 0.
+    if (choose (abs(nextpatch:periapsis-ht)>d_ht) if B_isBody else (approach>d_ht)){
+        local timetomnv is choose correction_time if B_isBody else 0.2.
+        local cnd is node(time:seconds+max(ship:orbit:period*correction_time,etanextpatch*(2*timetomnv)),0,0,0).
         add cnd.
         local tempnode is Node(time:seconds+eta:apoapsis,0,0,0).
         add tempnode.
         wait 0.
-        m_opt(cnd,{
-			//diag("periapsis: "+(choose cnd:orbit:nextpatch:periapsis-ht if cnd:orbit:transition="ENCOUNTER"//encounter what?
-                //else "none")).
-			return choose cnd:orbit:nextpatch:periapsis-ht if cnd:orbit:transition="ENCOUNTER"//encounter what?
-                else closest_approach(B,tempnode).}
-				,0,10,0.001,300).
+        local sovf is choose {
+            if cnd:orbit:transition="ENCOUNTER" {
+                //muns highest point is 7061m
+                return (cnd:orbit:nextpatch:periapsis<7500).
+            }return false.
+        } if B_isBody else {return false.}.
+        m_opt(cnd,{return choose cnd:orbit:nextpatch:periapsis-ht if cnd:orbit:transition="ENCOUNTER"//encounter what?
+                else closest_approach(B,tempnode).},0,10,dv,100,sovf).
             //TODO for a small moon like minmus, encounter can be easily lost, 
         m_exec(cnd,0.01,0.2).
-		// TODO: remove tempnode.
+        set approach to closest_approach(B,tempnode).
+        set timeto to tempnode:eta+time:seconds.
+        diag("timeto-time: "+(timeto-time:seconds)).
+        remove tempnode.
     }
-	
-	// TEMP: manual override opportunity
-	unlock steering.
-	unlock throttle.
-	print "Press any key to continue autonomously.".
-	terminal:input:clear.
-	wait until terminal:input:haschar.
-	terminal:input:clear.
-	
+    if not B_isBody {
+        diag("time: "+time:seconds).
+        diag("just timeto: "+timeto).
+        return dockApproach(B,timeto).
+    }
+    breakpoint("encounter_user_override").
     //important: warpto does not also wait in program.
-	set warpmode to "rails".
     warpto(time:seconds+ship:orbit:nextpatcheta).
     wait until warp=0.
     diag ("Target body: "+B:tostring()).
     diag ("Current body: "+ship:body:tostring()).
     wait until ship:orbit:body:tostring()=B:tostring().
     //cannot find eta's for a later patch
-	if circularize {
-		local vi2 is velocityat(SHIP, time:seconds +eta:periapsis):orbit:mag.
-		diag ("Entry eccentricity:="+ship:orbit:eccentricity).
-		local Ul is U_e(ship:orbit:eccentricity).
-		local nd2 is node(time:seconds+eta:periapsis,0,0,(1/Ul-1)*vi2).
-		add nd2.
-		m_exec().//(parameter is nd2)
-	}
+    local vi2 is velocityat(SHIP, time:seconds +eta:periapsis):orbit:mag.
+    diag ("Entry eccentricity:="+ship:orbit:eccentricity).
+    local Ul is U_e(ship:orbit:eccentricity).
+    local nd2 is node(time:seconds+eta:periapsis,0,0,(1/Ul-1)*vi2).
+    add nd2.
+    m_exec().//(parameter is nd2)
     wait 3.
     print "Manuvering to orbit arround "+dquote +B:tostring+dquote+" is finished.".
     return true.
@@ -1078,7 +1225,6 @@ local function plungeTo {//works, including changes to normalnode which now work
     }
     m_exec(nd).
     local t is time:seconds+eta:transition.
-	set warpmode to "rails".
     warpto(t).
     wait until time:seconds>t+1.
     if (ship:orbit:transition="ENCOUNTER") and  (eta:transition<=eta:periapsis){
@@ -1179,6 +1325,7 @@ if debug{
         }
     }
     if false {manuverto (0,target,10).}
+    if true {dockApproach(target,0).}//big succes but should test in unideal situations
     if false {//big success
         until false {
             print getOrbitRadiusAtVec(target,-body:position):mag.
@@ -1192,7 +1339,7 @@ if debug{
 }
 //even though we dont have to do this, it is a good idea because we can rename then to avoid nameing conflicts
 //all of these shoud have a prefix manuver_ (could later change to m_ but m_exec already uses it. maybe mnv_)
-global manuver_toInSOI is manuverTo@.//TODO non moon support
+global manuver_toInSOI is manuverTo@.//now supports docking
 global manuver_plungeFromSOI is plungeTo@.
 global manuver_trimOrbit is trim_orbit@.
 global manuver_matchInclination is m_matchInclination@.
