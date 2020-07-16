@@ -1,13 +1,45 @@
 local debug is true.
-function diag {
+local newline is char(10).
+local AERO_DIR is "0:/dat/ship/aero/".
+local AERO_EXT is ".dat".
+local rocket_pitch_kp is steeringManager:pitchpid:kp.
+local rocket_pitch_ki is steeringManager:pitchpid:ki.
+local rocket_pitch_kd is steeringManager:pitchpid:kd.
+local function PlaneSteering{
+    //default pitchpid is kp: 1, ki: 0.1, kd: 0
+    set steeringManager:pitchpid:kp to 10.
+    set steeringManager:pitchpid:ki to 1.
+} local function RocketSteering{
+    set steeringManager:pitchpid:kp to rocket_pitch_kp.
+    set steeringManager:pitchpid:ki to rocket_pitch_ki.
+    set steeringManager:pitchpid:kd to rocket_pitch_kd.
+}
+local function PlaneSteering{
+    //default pitchpid is kp: 1, ki: 0.1, kd: 0
+    set steeringManager:pitchpid:kp to 10.
+    set steeringManager:pitchpid:ki to 1.
+}
+local function diag {
     parameter str.
     if debug{print str.}
 }
-function getFirstEngine{
+local function getFileName{
+    parameter theshipname is ship:name.
+    local s is theshipname:replace(" ","_").//kos uses unicode.
+    return s+AERO_EXT.
+}
+local function getAeroDatDir {
+    //local newDir is path():combine(AERO_DIR).
+    local newDir is path(AERO_DIR).
+    if not exists(newDir){createDir(newDir).}
+    return newDir.
+    
+}
+local function getFirstEngine{
     list engines in engs.
     return engs[0].
 }
-function getThrustcurveCfg{//dont use, DNW
+local function getThrustcurveCfg{//dont use, DNW
     parameter eng is getFirstEngine().
     local mod_eng is eng:getModule("ModuleEnginesFX").
     print mod_eng:fields.
@@ -20,7 +52,7 @@ function getThrustcurveCfg{//dont use, DNW
 
 
 }
-function getCubic {
+local function getCubic {
     parameter var.//atm or mach
     parameter lst1.
     parameter lst2.
@@ -101,7 +133,7 @@ local atmMap is lexicon(
 //Panther -> turboJet
 //Juno -> miniJetEngine
 //Goliath -> turboFanSize2
-function getThrustAt{
+local function getThrustAt{
     parameter eng.
     parameter mach.
     parameter atms.
@@ -136,23 +168,23 @@ function getThrustAt{
     //return eng:MAXTHRUSTAT(1)*atmmult*machmult.//engine must be active, no limiter
     return eng:POSSIBLETHRUSTAT(1)*atmmult*machmult.//accounts for thrust limiter
 }
-function p_getCurrThrust {
+local function p_getCurrThrust {
     local th is V(0,0,0).
     list engines in engs.
     for eng in engs{
         set th to th+eng:thrust*eng:FACING:FOREVECTOR.
     }return th.
 }
-function p_aeroforce {
+local function p_aeroforce {
     local f is ship:sensors:acc*ship:mass-ship:mass*ship:sensors:grav-p_getCurrThrust().
     
     return f.
 }
-function vec_radialout_surface {
+local function vec_radialout_surface {
     return (ship:up:forevector-(ship:up:forevector*ship:velocity:surface)/ship:velocity:surface:sqrmagnitude*ship:velocity:surface):normalized.
 }
 local aoa is "none".
-function p_lock_aoa {
+local function p_lock_aoa {
     parameter aoa_arg.//not an actual lock; is in degrees.
     set aoa to aoa_arg.
     if aoa="none"{
@@ -162,6 +194,172 @@ function p_lock_aoa {
         lock steering to lookDirUp(ship:velocity:surface:normalized*cos(aoa)+vec_radialout_surface()*sin(aoa),up:forevector).
 
     }
+}
+local function p_get_aoa{
+    local sgn is vectorExclude(ship:velocity:surface,ship:facing:vector)*ship:up:forevector.
+    set sgn to choose 1 if sgn=0 else sgn/abs(sgn).
+    return Vang(ship:facing:vector,ship:velocity:surface)*sgn.
+}
+local aero is "none".
+local function recordAero{
+    parameter aoamax is 5.
+    parameter d_aoa is 0.3.
+    local aoa2 is 0.
+    local paoa is -d_aoa.
+    local dat is list().//list of rows
+    set steeringManager:pitchpid:kp to steeringManager:pitchpid:kp*10.//proportional gain factor
+    until false {
+        p_lock_aoa(aoa2).//not pulling up fast enough
+        wait 1.
+        local caoa is p_get_aoa().
+        diag("caoa: "+caoa).
+        local f is p_aeroforce().
+        diag ("f: "+f).
+        local v is ship:velocity:surface:mag.
+        local sng is vectorExclude(ship:velocity:surface,f)*ship:up:forevector.
+        local atm is ship:sensors:pres/Constant:atmtokpa.//pres is in kpa
+        //but sealevelpressure is in atm, WTF!
+        //1 atm =101.325 KPa. same as real life; use the Constant:...
+        if atm=0 {
+            print "no atmosphere".
+            return false.
+        } if v=0 {
+            print "no velocity".
+            return false.
+        }
+        set sng to choose 1 if sng=0 else sng/abs(sng).
+        diag ("atm: "+atm).
+        diag ("v: "+v).
+        dat:add(list(p_get_aoa(),
+                vectorExclude(ship:velocity:surface,f):mag*sng/atm/v^2,//lift
+                -(f*ship:velocity:surface:normalized)/atm/v^2)).//drag (both +);relative to velocity
+        diag(dat[dat:length-1]).
+        if abs(caoa-paoa)<d_aoa*0.1{
+            print "can't turn any higher".
+            break.
+        }
+        if caoa>aoamax {
+            break.
+        }
+        set paoa to caoa.
+        set aoa2 to aoa2+d_aoa.
+        
+
+    }
+    set steeringManager:pitchpid:kp to steeringManager:pitchpid:kp/10.
+    set aero to dat:copy.
+    print dat.
+    local fpath is getAeroDatDir():combine(getFileName(ship:name)).
+    print "saving to:  "+fpath.
+    if not exists(fpath) {create(fpath).}
+    local fdat is open(fpath).
+    fdat:clear().
+    for row in dat {
+        //log (row[0]+" "+row[1]+" "+row[2]) to fdat.
+         if not fdat:writeLn((row[0]+" "+row[1]+" "+row[2])) {
+             print "out of space".
+             return false.
+         }
+    }
+    return true.
+    //dont need to close
+    //maybe todo lib_plot.
+
+
+
+
+}
+local function loadAero {
+    parameter fpath is getAeroDatDir():combine(getFileName(ship:name)).
+    print "loading aero data from: "+fpath.
+    if not exists(fpath) {
+        print "file not found.".
+        return false.
+    }
+    set aero to list().
+    local dat is open(fpath):readAll().
+    //print dat:string():split(newline).
+    for line in (dat:string():split(newline)){
+        local row is line:split(" ").
+        if row:length=1 and row[0]="" {break.}
+        //print row:typename.//is ListValue'1 instead of List
+        //https://github.com/KSP-KOS/KOS/issues/2590
+        //print row.
+        local nrow is list().
+        from {set a to 0.}until a>=row:length step {set a to a+1.} do {
+            //print row[a].//string
+            nrow:add(row[a]:tonumber()).
+            //local asdf is "1234":tonumber().
+        }
+        aero:add(nrow).
+    }
+    //print aero.
+    return true.
+
+}
+loadAero().//attempt on lib load
+
+local function getLiftAt{
+    parameter aoatk.
+    parameter v.
+    parameter atms.
+    parameter index is 1.//end user do not use
+    parameter indexnot is 0.//end user do not use
+    //must be monatomic increasing on indexnot
+    if aero = "none"{
+        return 0.
+    }
+    local di is ceiling(aero:length()/4).
+    local i is ceiling(aero:length()/2)-1.
+    local pi is 0.
+    local paoa is -90.
+    local sgn is 1.
+    until false {
+        local taoa is aero[i][indexnot].
+        diag("taoa"+taoa).
+        diag("di"+di).
+        diag("i"+i).
+        if taoa=aoatk {return aero[i][index]*v^2*atms.}
+        if ((taoa-aoatk)*(paoa-aoatk)<0) and (di=1) {
+            diag("av").
+            local tw is abs((paoa-aoatk)/(paoa-taoa)).
+            local pw is abs((taoa-aoatk)/(paoa-taoa)).
+            return (tw*aero[i][index]+pw*aero[pi][index])*v^2*atms.
+        }
+        set di to ceiling(di/2).
+        set sgn to (aoatk-taoa)/abs(taoa-aoatk).
+        if (i+sgn*di=pi) {//would be infinite loop
+            diag("loop").
+            return aero[i][index]*v^2*atms.
+        }
+        set pi to i.
+        set i to i+sgn*di.
+        set paoa to taoa.
+        if i<0 {
+            if di=1 {return aero[0][index]*v^2*atms.}
+            else {
+                set di to 1. set i to 0.
+            }}
+        if (i>aero:length()-1) {
+            if di=1 {return aero[aero:length-1][index]*v^2*atms.}
+            else {
+                set di to 1. set i to aero:length-1.
+            }}
+
+    }
+}
+local function getDragAt{
+    parameter aoatk.
+    parameter v.
+    parameter atms.
+   return getLiftAt(aoatk,v,atms,2).
+}
+local aoa_lift_1g is "TODO".//record some params in advance
+local function getAsymuthAt{
+    parameter v.
+    parameter atms.
+    //approx thrust is in -V dir.
+
 }
 local asymuth is "none".//velocity pitch
 local do_asymuth is false.
@@ -175,6 +373,10 @@ function p_lock_asymuth {
         set do_asymuth to false.
     }
     else {
+        if aoa="none" {
+            //starting aoa
+            set aoa to 1.
+        }
         set do_asymuth to true.
         set t_asy to time:seconds.
         local prevang is vang(ship:up:forevector,ship:velocity:surface).
@@ -194,9 +396,9 @@ function p_lock_asymuth {
     }
 }
 if debug{
-    clearscreen.
+    //clearscreen.
     clearVecDraws().
-    if true{
+    if false{
         local arrowsize is 0.2.
         local arrowwidth is 1.0.
         clearVecDraws().
@@ -212,8 +414,10 @@ if debug{
     }
     if false {
         //works enough
+        PlaneSteering().
         p_lock_asymuth(5).
         wait until not do_asymuth.
+        RocketSteering().
     }
     if false{//now works for rapier and whiplash
         global getJetThrust is getThrustAt@:bind(getFirstEngine()).
@@ -231,5 +435,23 @@ if debug{
         print getJetThrust(0,0.125).
         print getJetThrust(0,0.0625).
         //delegate is killed when back in terminal
+    }
+    if false {//big success
+        until false {
+            print ("AOA: "+p_get_aoa()) at (2,2).
+            wait 0.
+        }
+    } if false {
+        recordAero().
+    }
+    if false {
+        runOncePath("0:/src/lib_plot.ks").
+        plot(aero,list(0,5,0,0.01),"^",true,0,1).
+        plot(aero,list(0,5,0,0.01),"<",false,0,2).
+    }if false {//big success
+        print getDragAt(0,ship:velocity:surface:mag,ship:sensors:pres/constant:atmtokpa).wait 10.
+        print getDragAt(1,ship:velocity:surface:mag,ship:sensors:pres/constant:atmtokpa).wait 10.
+        print getDragAt(3,ship:velocity:surface:mag,ship:sensors:pres/constant:atmtokpa).wait 10.
+        print getDragAt(5,ship:velocity:surface:mag,ship:sensors:pres/constant:atmtokpa).
     }
 }

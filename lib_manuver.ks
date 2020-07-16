@@ -57,23 +57,34 @@ local function orbitTimeToAng{
     parameter orb.
     parameter tan_i.//true anomalies
     parameter tan_f.
+    diag("tan_i: "+tan_i).
+    diag("tan_f: "+tan_f).
     local tanimod is modu(tan_i,360).
+    diag("tanimod: "+tanimod).
     set tan_f to tan_f+tanimod-tan_i.
     set tan_i to tanimod.//modness tan_i
+    diag("tan_i: "+tan_i).
+    diag("tan_f: "+tan_f).
     //local L is vCrs(orb:position()-orb:body:position,orb:velocity:orbit-orb:body:velocity:orbit).
-    local F is v(2*orbit:semimajoraxis*orbit:eccentricity,0,0).
+    local F is v(2*orb:semimajoraxis*orb:eccentricity,0,0).
     local Ar is orbitPolar(orb,tan_i).
     local A is v(-cos(tan_i)*Ar,-sin(tan_i)*Ar,0).
     local Br is orbitPolar(orb,tan_f).
     local B is v(-cos(tan_f)*Br,-sin(tan_f)*Br,0).
-    local t0 is vang((A-F),(B-F))/360*orbit:period.
+    local t0 is vang((A-F),(B-F))/360*orb:period.
+    diag ("vang_F: "+vang((A-F),(B-F))).//problem
+    diag ("vang_Body: "+vang((A),(B))).//problem
+    diag("t0: "+t0).
     //local tan_c is 0.
     local sgn is 1.
-    if (Vectorexclude((B-F),B)*A)>(Vectorexclude((B-F),A)*A){
+    if (Vectorexclude((A-F),B)*A)>(Vectorexclude((A-F),A)*A){
         if tan_i>180 {set sgn to -1.}
     } else if tan_i<180 {set sgn to -1.}
     if tan_i=180 {set sgn to (tan_f-tan_i)/abs(tan_f-tan_i).}
     local nobs is (tan_f-tan_i-modu(tan_f-tan_i,360))/360.
+    diag("sgn: "+sgn).
+    diag("nobs: "+nobs).
+    breakpoint("timetoTan").
     return nobs*orb:period+modu(t0*sgn,orb:period).
 
 }
@@ -105,7 +116,7 @@ local function getPerapsisDirVec_broken_dontuse {//this is impossible, dont use
     // to the point where it’s impossible to get a fix on just which direction they’ll point.
 
 }
-local function getPerapsisDirVec{
+local function getPerapsisDirVecOld{//can work but is bad
     parameter B.
     parameter overflow is 10.
     if B=ship {
@@ -145,6 +156,16 @@ local function getPerapsisDirVec{
     return positionat(B,tnot+eta)-orb:body:position.
 
 }
+local function getPerapsisDirVec{
+    parameter B.
+    parameter overflow is 10.//wont use
+    local tan is B:orbit:trueAnomaly.
+    local pos is (B:position()-B:body:position()).
+    local vel is B:velocity:orbit.
+    local l is vcrs(pos,vel):normalized.
+    local s is vcrs(pos,l):normalized.
+    return (pos:normalized*cos(tan)+s*sin(tan)):normalized.
+}
 local function getApproxBurnTo {
     parameter B.
     parameter nd is nextnode.//edits
@@ -164,7 +185,7 @@ local function getApproxBurnTo {
     local vc0 is sqrt(ship:body:mu/(positionat(ship, t) -ship:orbit:BODY:POSITION):mag).
     local U0 is velocityAt(ship,t):orbit:mag/vc0.//gets just beore node, dont acutally need multinode parameter
     local Hf is orbitPolar(B:orbit,tht)/((positionat(ship, t)-ship:orbit:BODY:POSITION):mag).
-    diag ("Orb polar: "+orbitPolar(B:orbit,tht)).//looks good but dv is wrong
+    //diag ("Orb polar: "+orbitPolar(B:orbit,tht)).//looks good but dv is wrong
     //set nd:prograde to vc0*(U(Hf)-U0).//works well now
     local dvtot is vc0*(U(Hf)-U0).
     //diag("dvnd0"+dvnd0).
@@ -268,17 +289,39 @@ local function getDvEjectMoonPlunge{//reversible
 local function getTransferTime {
     parameter A.//start
     parameter B.//end
-    if not A:body=B:body {
+    if not (A:body=B:body) {
         print "bodies do not have same center".
         return "none".
     }
+    local S is A:body.//short for sun
     parameter A_perivec is getPerapsisDirVec(A).
     parameter B_perivec is getPerapsisDirVec(B).
-
     //circular noninclined approx
-    local Ang is ((A:semimajoraxis+B:semimajoraxis)/2/B:semimajoraxis)^(1.5)*180.
+    local Ang is ((A:orbit:semimajoraxis+B:orbit:semimajoraxis)/2/B:orbit:semimajoraxis)^(1.5)*180.
     set Ang to modu(Ang,360).
     //angle of B from anti-A
+    diag("Ang: "+Ang).
+    //return Ang.//answers look reasonable
+    local t is time:seconds.
+    local rA0 is positionAt(A,t)-S:position().
+    local rB0 is positionAt(B,t)-S:position().
+    local Lb is vcrs(rB0,velocityAt(B,t):orbit).//if needed, use B as l ref
+    local Ang_0 is vang(-rA0,RB0).
+    if Lb*vcrs(rA0,rB0)<0 {set Ang_0 to 360-Ang_0.}.
+    diag("Ang_0: "+Ang_0).
+    local A_retro is ((vcrs(rA0,velocityAt(B,t):orbit)*Lb)<0).
+    local omg_r is choose (360/B:orbit:period + 360/A:orbit:period) if A_retro else 
+            (360/B:orbit:period - 360/A:orbit:period).//=-d Ang/dt
+    if (omg_r>0) and (Ang_0<Ang) {set Ang_0 to Ang_0+360.}
+    if (omg_r<0) and (Ang_0>Ang) {set Ang_0 to Ang_0-360.}
+    if omg_r=0 {
+        print "can't transfer, Bodied have same period.".
+        return "none".
+    }
+    local tto is (Ang_0-Ang)/omg_r.
+    diag ("tto: "+tto).
+    return t+tto.//TODO fine tune based on eccentricity
+    
 }
 local function m_util_min{//list version of min
     parameter ns.//will be destroyed
@@ -1277,7 +1320,7 @@ local function manuverToApsi{
     local apprtime is time:seconds+eta:apoapsis.
     if not (B_isbody and (ship:orbit:transition="ENCOUNTER") and (eta:transition<ship:orbit:period)){
         local maxOrbits is 5.
-        //local t is time:seconds.
+        //Perivec is unreliable if eccentricity = 0.
         local avec is positionAt(ship,time:seconds+eta:apoapsis)-ship:body:position.
         local tansgn is vcrs(B:orbit:position-B:orbit:body:position,B:orbit:velocity:orbit)
                 *vcrs(B_perivec,avec).
@@ -1286,6 +1329,7 @@ local function manuverToApsi{
         diag("tan:"+tan).
         local tap is time:seconds+modu(orbitTimeToAng(B:orbit,B:orbit:trueanomaly,tan),B:orbit:period).
         diag("tap:"+tap).
+        //TODO if there is an early encounter
         local tms is list().
         local nmin is "none".
         from {local n is 0.}until n>=maxOrbits step {set n to n+1.} do{
@@ -1455,9 +1499,19 @@ local function plungeTo {//works, including changes to normalnode which now work
     local opt2 is {return cnd:orbit:periapsis.}.
     wait 0.
     m_opt(cnd,opt2,ht).
-    if cnd:deltav:mag<0.01{remove cnd.}
+    if cnd:deltav:mag<0.01 or abs(ship:orbit:periapsis-ht)<d_ht{remove cnd.}
     else {
         m_exec(cnd,0.01,0.2).
+    }
+    wait 0.
+    if circularize {
+        local vi2 is velocityat(SHIP, time:seconds +eta:periapsis):orbit:mag.
+        diag ("Entry eccentricity:="+ship:orbit:eccentricity).
+        local Ul is U_e(ship:orbit:eccentricity).
+        local nd2 is node(time:seconds+eta:periapsis,0,0,(1/Ul-1)*vi2).
+        add nd2.
+        m_exec(nd2).//(parameter is nd2)
+        wait 3.
     }
     print "plunge manuver from "+B:name+" to periapsis of "+ship:orbit:periapsis+" above "+ship:body:name+" complete.".
 
@@ -1548,6 +1602,7 @@ if debug{
     if false {m_opt_eta(nextnode,{return nextnode:orbit:apoapsis.},"max").}//big success
     if false {manuverToApsi(20000,mun,2000).}
     if false {plungeTo(20000).}
+    if false {getTransferTime(kerbin,eve).}
     //ship is a Vessel, mun is a Body. TODO add support for docking manuvers
 }
 //even though we dont have to do this, it is a good idea because we can rename then to avoid nameing conflicts
@@ -1556,4 +1611,5 @@ global manuver_toInSOI is manuverTo@.//now supports docking
 global manuver_plungeFromSOI is plungeTo@.
 global manuver_trimOrbit is trim_orbit@.
 global manuver_matchInclination is m_matchInclination@.
+global manuver_getTransferTime is getTransferTime@.
 
