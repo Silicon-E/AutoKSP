@@ -1,4 +1,4 @@
-parameter debug is false.
+parameter debug is true.
 local dquote is char(34).
 //ctrl-K-0 to fold all, ctrl_K-J to unfold all (fold is colapse)
 //maybe todo find compile directive to turn of parenticeless local function calls.
@@ -319,8 +319,34 @@ local function getTransferTime {
         return "none".
     }
     local tto is (Ang_0-Ang)/omg_r.
+    local ptto is "none".
     diag ("tto: "+tto).
-    return t+tto.//TODO fine tune based on eccentricity
+    local B_trmag is B:orbit:semimajoraxis.
+    from {local i is 0.} until ((i>=5) or (ptto=tto)) step {set i to i+1.} do {
+        //TODO fine tune based on eccentricity
+        local A_trvec is (positionAt(A,t+tto)-A:body:position).
+        local t_trans is A:orbit:period/2*((B_trmag+A_trvec:mag)/2/A:orbit:semimajoraxis)^1.5.
+        local B_trvec is (positionAt(A,t+tto+t_trans)-A:body:position).
+        set B_trmag to B_trvec:mag.
+        set t_trans to A:orbit:period/2*((B_trmag+A_trvec:mag)/2/A:orbit:semimajoraxis)^1.5.
+        set B_trvec to (positionAt(A,t+tto+t_trans)-A:body:position).
+        set V_at to -A_trvec:normalized*B_perivec:mag.
+        local A_omg to vcrs((positionAt(A,t+tto)-A:body:position),(velocityAt(A,t+tto):orbit)
+                )/(positionAt(A,t+tto)-A:body:position):sqrmagnitude.
+        local B_omg to vcrs((positionAt(B,t+tto+t_trans)-S:position),(velocityAt(B,t+tto+t_trans):orbit)
+                )/(positionAt(B,t+tto+t_trans)-S:position):sqrmagnitude.
+        local tht is vcrs(V_at:normalized,B_trvec:normalized)*B_omg:normalized.
+        if vang(V_at,B_trvec)>90 {set tht to (180-abs(tht))*tht/abs(tht).}
+        set omg_r to B_omg:mag-A_omg*B_omg:normalized. if omg_r=0 {
+        print "can't transfer, Bodied have same period.".
+        return "none".
+        }
+        set ptto to tto.
+        set tto to tto+tht/omg_r.
+        diag("tto: "+tto).
+
+    }
+    return t+tto.
     
 }
 local function m_util_min{//list version of min
@@ -902,10 +928,11 @@ local function m_matchInclination{
 local function trim_orbit {
     parameter apo.
     parameter per.
+    parameter soon is false.
     local H_i_p is (ship:apoapsis+ship:body:radius)/(ship:periapsis+ship:body:radius).
     local H_i_a is 1/H_i_p.
     local H_f_p is (apo+ship:body:radius)/(per+ship:body:radius).
-    local H_f_a is 1/H_i_p.
+    local H_f_a is 1/H_f_p.
     local U_i_a is U(H_i_a).
     local U_i_p is U(H_i_p).
 
@@ -917,8 +944,11 @@ local function trim_orbit {
     local H_f_ap is (per+ship:body:radius)/(ship:apoapsis+ship:body:radius).
     local dv_ap is get_v_c(ship:body,ship:body:radius+apoapsis)*abs(U(H_f_ap)-U_i_a)
             +get_v_c(ship:body,ship:body:radius+per)*abs(U(H_f_p)-U(1/H_f_ap)).
-            
-    if dv_pa<dv_ap{
+    local do_pa is (dv_pa<dv_ap).
+    if soon {
+        set do_pa to (eta:periapsis<eta:apoapsis).
+    }
+    if do_pa{
         local n1 is node(time:seconds+eta:periapsis,0,0,get_v_c(ship:body,ship:body:radius+periapsis)*(U(H_f_pa)-U_i_p)).
         add n1.
         add node(time:seconds+n1:eta+n1:orbit:period/2,0,0,get_v_c(ship:body,ship:body:radius+apo)*(U(H_f_a)-U(1/H_f_pa))).
@@ -1270,6 +1300,38 @@ local function manuverTo{
     add nd2.
     m_exec().//(parameter is nd2)
     wait 3.
+    diag("ht-dht: "+ (ht-d_ht)).
+    diag("periapsis: "+ ship:periapsis).
+    breakpoint("pre trim.").
+    
+    if ship:orbit:periapsis<(ht-d_ht) {
+        print "correcting periapsis".
+        if ship:orbit:trueanomaly<150 {
+            warpto(time:seconds+eta:apoapsis).
+            wait until eta:apoapsis>orbit:period()*0.7.
+        }else if eta:periapsis<eta:apoapsis{
+            lock steering to up.
+            wait 10.
+            lock throttle to 0.2.
+            wait until eta:periapsis>eta:apoapsis.
+            lock throttle to 0.
+        }
+        lock steering to prograde.
+        
+        wait 10.
+        lock throttle to 0.2.
+        wait until ship:orbit:periapsis>(ht-d_ht) or ((ship:periapsis+ship:apoapsis)>(2*ht+4*d_ht)).
+        lock throttle to 0.
+        if ship:orbit:periapsis<(ht-d_ht){
+            warpto(time:seconds+eta:apoapsis).
+            wait until eta:apoapsis>orbit:period()*0.7.
+            lock steering to prograde.
+            wait 10.
+            lock throttle to 0.2.
+            wait until ship:orbit:periapsis<(ht-d_ht) or ((ship:periapsis+ship:apoapsis)>(2*ht+10*d_ht)).
+            lock throttle to 0.
+        }
+    }
     print "Manuvering to orbit arround "+dquote +B:tostring+dquote+" is finished.".
     return true.
 
@@ -1516,6 +1578,11 @@ local function plungeTo {//works, including changes to normalnode which now work
     print "plunge manuver from "+B:name+" to periapsis of "+ship:orbit:periapsis+" above "+ship:body:name+" complete.".
 
 }
+local function toPlanet {
+    parameter B.
+    local tm is getTransferTime(ship:body,B).
+    warpto(tm).//TODO timewarp seems to never stop due to loss of power.
+}
 local function testpatch {
     local frame_out is "".
     local nframe is 100.
@@ -1612,4 +1679,5 @@ global manuver_plungeFromSOI is plungeTo@.
 global manuver_trimOrbit is trim_orbit@.
 global manuver_matchInclination is m_matchInclination@.
 global manuver_getTransferTime is getTransferTime@.
+global manuver_toPlanet is toPlanet@.//UNFINISHED
 
