@@ -1,4 +1,4 @@
-parameter debug is true.
+parameter debug is false.
 local dquote is char(34).
 //ctrl-K-0 to fold all, ctrl_K-J to unfold all (fold is colapse)
 //maybe todo find compile directive to turn of parenticeless local function calls.
@@ -309,18 +309,29 @@ local function getTransferTime {
     local Ang_0 is vang(-rA0,RB0).
     if Lb*vcrs(rA0,rB0)<0 {set Ang_0 to 360-Ang_0.}.
     diag("Ang_0: "+Ang_0).
-    local A_retro is ((vcrs(rA0,velocityAt(B,t):orbit)*Lb)<0).
+    local A_retro is ((vcrs(rA0,velocityAt(A,t):orbit)*Lb)<0).
+    diag("A_retro: "+A_retro).
     local omg_r is choose (360/B:orbit:period + 360/A:orbit:period) if A_retro else 
             (360/B:orbit:period - 360/A:orbit:period).//=-d Ang/dt
+    diag("omega: "+omg_r).
     if (omg_r>0) and (Ang_0<Ang) {set Ang_0 to Ang_0+360.}
     if (omg_r<0) and (Ang_0>Ang) {set Ang_0 to Ang_0-360.}
     if omg_r=0 {
         print "can't transfer, Bodied have same period.".
         return "none".
     }
+    diag("modded Ang_0="+Ang_0).
+    //TODO sometimes give the wrong time.
     local tto is (Ang_0-Ang)/omg_r.
-    local ptto is "none".
     diag ("tto: "+tto).
+    local ptto is "none".
+    local rA1 is positionAt(A,t+tto)-S:position().
+    local rB1 is positionAt(B,t+tto)-S:position().
+    local Ang_1 is vang(-rA1,RB1).
+    if Lb*vcrs(rA1,rB1)<0 {set Ang_1 to 360-Ang_1.}.
+    set tto to tto+ (Ang_1-Ang)/omg_r.
+    diag ("tto_1: "+tto).
+
     local B_trmag is B:orbit:semimajoraxis.
     from {local i is 0.} until ((i>=5) or (ptto=tto)) step {set i to i+1.} do {
         //TODO fine tune based on eccentricity
@@ -343,6 +354,7 @@ local function getTransferTime {
         }
         set ptto to tto.
         set tto to tto+tht/omg_r.
+        diag("tht: "+tht).
         diag("tto: "+tto).
 
     }
@@ -1581,7 +1593,9 @@ local function plungeTo {//works, including changes to normalnode which now work
 local function toPlanet {
     parameter B.
     local tm is getTransferTime(ship:body,B).
-    warpto(tm).//TODO timewarp seems to never stop due to loss of power.
+    //warpto(tm).//TODO timewarp seems to never stop due to loss of power.
+    local nd is node(tm,0,0,0).
+    add nd.
 }
 local function testpatch {
     local frame_out is "".
@@ -1679,5 +1693,5 @@ global manuver_plungeFromSOI is plungeTo@.
 global manuver_trimOrbit is trim_orbit@.
 global manuver_matchInclination is m_matchInclination@.
 global manuver_getTransferTime is getTransferTime@.
-global manuver_toPlanet is toPlanet@.//UNFINISHED
+global manuver_toPlanet is toPlanet@.//UNFINISHED; temporary usage: places manuver node at next transfer window.
 
