@@ -67,7 +67,10 @@ global GO_TO_SURFACE is {
 			}
 		} else if SHIP:ORBIT:PERIAPSIS>0 and SHIP:ORBIT:APOAPSIS>0 {
 			runpath("0:/AutoKSP/goto_clear_path.ks", SHIP:RETROGRADE:VECTOR).
-			runpath("0:/AutoKSP/deorbit.ks").
+			// Only perform a deorbit burn if there is no atmosphere OR our periapsis is above the atmosphere
+			if (not(SHIP:ORBIT:BODY:ATM:EXISTS)) or SHIP:PERIAPSIS > SHIP:ORBIT:BODY:ATM:HEIGHT {
+				runpath("0:/AutoKSP/deorbit.ks").
+			}
 			runpath("0:/AutoKSP/land.ks").
 		} else { // Either periapsis or apoapsis is below sea level; use simple landing.
 			print "Collision course detected. Use emergency landing procedure.".
