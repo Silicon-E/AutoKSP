@@ -28,14 +28,13 @@ function DIST_TO_TOUCHDOWN {
 	return SHIP:VELOCITY:SURFACE:MAG * TIME_TO_TOUCHDOWN. // This is inaccurate, because it does not account for gravity
 }
 
-SAS on.
 set NAVMODE to "surface".
 until SHIP_BOUNDS:BOTTOMALTRADAR < 0.1 {
 	local IS_DESCENDING is SHIP:VELOCITY:SURFACE*SHIP:UP:VECTOR<0.
 	if SHIP:VELOCITY:SURFACE:MAG > 0.5 and IS_DESCENDING {
-		set SASMODE to "retrograde".
+		lock STEERING to SHIP:SRFRETROGRADE:VECTOR.
 	} else {
-		set SASMODE to "stability".
+		lock STEERING to SHIP:FACING.
 	}
 	
 	//declare BURN_TIME to (SHIP:VELOCITY:SURFACE:MAG + SHIP:SENSORS:GRAV:MAG*TIME_TO_TOUCHDOWN) / AVAILABLE_ACCEL. // Lands successfully, but not with a suicide burn.
@@ -48,4 +47,17 @@ until SHIP_BOUNDS:BOTTOMALTRADAR < 0.1 {
 }
 lock THROTTLE to 0.
 unlock THROTTLE.
+print "  Settle.".
+local SETTLE_TIME is 0.
+until SETTLE_TIME>4 {
+	lock STEERING to SHIP:UP.
+	wait 0.1.
+	unlock STEERING.
+	wait 0.1.
+	if SHIP:ANGULARVEL:MAG<0.1 {
+		set SETTLE_TIME to SETTLE_TIME + 0.2.
+	} else {
+		set SETTLE_TIME to 0.
+	}
+}
 print "  Done.".

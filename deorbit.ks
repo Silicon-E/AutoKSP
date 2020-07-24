@@ -4,10 +4,12 @@ RUNONCEPATH("0:/AutoKSP/lib_body.ks").
 
 // Execute deorbit burn at apoapsis:
 print "Begin deorbit sequence.".
-print "  Warp to apoapsis.".
-KUNIVERSE:TIMEWARP:WARPTO(TIME:SECONDS + ETA:APOAPSIS).
-wait 1.
-wait until KUNIVERSE:TIMEWARP:RATE = 1.
+if SHIP:ORBIT:ECCENTRICITY > 0.3 {
+	print "  Warp to apoapsis.".
+	KUNIVERSE:TIMEWARP:WARPTO(TIME:SECONDS + ETA:APOAPSIS).
+	wait 1.
+	wait until KUNIVERSE:TIMEWARP:RATE = 1.
+}
 
 print "  Face retrograde.".
 SAS on.
