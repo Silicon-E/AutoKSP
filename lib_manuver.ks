@@ -1,4 +1,4 @@
-parameter debug is false.
+parameter debug is true.
 local dquote is char(34).
 //ctrl-K-0 to fold all, ctrl_K-J to unfold all (fold is colapse)
 //maybe todo find compile directive to turn of parenticeless local function calls.
@@ -334,19 +334,20 @@ local function getTransferTime {
 
     local B_trmag is B:orbit:semimajoraxis.
     from {local i is 0.} until ((i>=5) or (ptto=tto)) step {set i to i+1.} do {
-        //TODO fine tune based on eccentricity
+        
         local A_trvec is (positionAt(A,t+tto)-A:body:position).
         local t_trans is A:orbit:period/2*((B_trmag+A_trvec:mag)/2/A:orbit:semimajoraxis)^1.5.
-        local B_trvec is (positionAt(A,t+tto+t_trans)-A:body:position).
+        local B_trvec is (positionAt(B,t+tto+t_trans)-A:body:position).
         set B_trmag to B_trvec:mag.
         set t_trans to A:orbit:period/2*((B_trmag+A_trvec:mag)/2/A:orbit:semimajoraxis)^1.5.
-        set B_trvec to (positionAt(A,t+tto+t_trans)-A:body:position).
+        set B_trvec to (positionAt(B,t+tto+t_trans)-A:body:position).
         set V_at to -A_trvec:normalized*B_perivec:mag.
         local A_omg to vcrs((positionAt(A,t+tto)-A:body:position),(velocityAt(A,t+tto):orbit)
                 )/(positionAt(A,t+tto)-A:body:position):sqrmagnitude.
         local B_omg to vcrs((positionAt(B,t+tto+t_trans)-S:position),(velocityAt(B,t+tto+t_trans):orbit)
                 )/(positionAt(B,t+tto+t_trans)-S:position):sqrmagnitude.
-        local tht is vcrs(V_at:normalized,B_trvec:normalized)*B_omg:normalized.
+        local tht is vcrs(B_trvec:normalized,V_at:normalized)*B_omg:normalized.
+        diag("tht: "+tht).
         if vang(V_at,B_trvec)>90 {set tht to (180-abs(tht))*tht/abs(tht).}
         set omg_r to B_omg:mag-A_omg*B_omg:normalized. if omg_r=0 {
         print "can't transfer, Bodied have same period.".
@@ -360,6 +361,36 @@ local function getTransferTime {
     }
     return t+tto.
     
+}
+local function getBurnToPlanet{
+    parameter A.//start
+    parameter B.//end
+    parameter tm.
+    if not (A:body=B:body) {
+        print "bodies do not have same center".
+        return "none".
+    }
+    local S is A:body.//short for sun
+    local B_trmag is B:orbit:semimajoraxis.
+    local A_trvec is (positionAt(A,tm)-A:body:position).
+    local t_trans is A:orbit:period/2*((B_trmag+A_trvec:mag)/2/A:orbit:semimajoraxis)^1.5.
+    local B_trvec is (positionAt(B,tm+t_trans)-A:body:position).
+    set B_trmag to B_trvec:mag.
+    set t_trans to A:orbit:period/2*((B_trmag+A_trvec:mag)/2/A:orbit:semimajoraxis)^1.5.
+    set B_trvec to (positionAt(B,tm+t_trans)-A:body:position).
+    set B_trmag to B_trvec:mag.
+    //diag("B_trmag: ")
+    local Hf0 is B_trmag/A_trvec:mag.
+    diag("HF0: "+HF0).//BUG
+    local Uf0 is U(B_trmag/A_trvec:mag).
+    diag("Uf0: "+Uf0).
+    local vc is sqrt(S:mu/A_trvec:mag).
+    diag("vc: "+vc).
+    local Ui0 is velocityAt(A,tm):orbit:mag/vc.
+    diag("Ui0: "+Uf0).
+    local dv is vc*(Uf0-Ui0).
+    diag("dv: "+dv).
+    return dv.
 }
 local function m_util_min{//list version of min
     parameter ns.//will be destroyed
@@ -551,6 +582,97 @@ local function m_opt {
         diag("Optimizing: "+opt()+" DDV: "+sqrt(d_p^2+d_o^2+d_n^2)).
     }
 }
+local function m_opt_pro {
+    parameter node.
+    parameter opt.
+    parameter tgt is 0.//usage: "min", "max", or Scalar Value
+    parameter stepVmax is 10.
+    parameter dv is 0.001.
+    parameter overflow is 100.
+    parameter supressOverflow is {return false.}.
+    local function farness {
+        parameter optval.
+        if tgt="min"{
+            return optval.
+        }
+        else if tgt="max"{
+            return -optval.
+        }else{
+            return abs(tgt-optval).
+        }
+    }
+    from {local a is 0.} until (a>=overflow) and not supressOverflow() step {set a to a+1.} do {
+        local opt_ is opt().
+        local optopt is farness(opt_).
+        set node:prograde to node:prograde+dv.
+        wait 0.
+        local opt_p is opt().
+        local optopt is min(optopt,farness(opt_p)).
+        set node:prograde to node:prograde-dv.
+        set node:prograde to node:prograde-dv.
+        wait 0.
+        local opt_r is opt().
+        local optopt is min(optopt,farness(opt_r)).
+        set node:prograde to node:prograde+dv.
+
+        wait 0.
+        //diag(list(opt_p,opt_,opt_r)).
+        if optopt=farness(opt_){break.}//Nabla approx 0.
+        local del_p is (opt_p-opt_r)/2/dv.
+        local del_mag is sqrt(del_p^2).
+        //assert del_mag!=0
+        local del_pp is (opt_p+opt_r-2*opt_)/dv^2.
+        local del_sq is abs(del_pp).//not as good
+        //diag(list(del_pp,del_oo,del_nn,del_po,del_pn,del_on)).//cross terms where faulty
+        //local del_sq is del_
+        local d_p is 0.
+        //for a 3x3 matrix with element max s, the largest eigenvalue musbe have abs(eigen)<=s*3^0.333  (by sauruss's rule)
+        //components of form: radialout, normal, prograde; if vectorized
+        
+        if tgt="max"{
+            if del_sq=0 {
+                set d_p to del_p/del_mag*stepVmax.
+            } else{
+                set d_p to min(max(-stepVmax,del_p/del_sq),stepVmax).
+            }
+
+        } else if tgt="min"{
+            if del_sq=0 {
+                set d_p to -del_p/del_mag*stepVmax.
+            } else{
+                set d_p to -min(max(-stepVmax,del_p/del_sq),stepVmax).
+            }
+
+        }else{
+            if del_sq=0 or abs((tgt-opt_)*del_p/del_mag^2)<=abs(del_p/del_sq){
+                set d_p to (tgt-opt_)*del_p/del_mag^2.
+                diag("zerolike").
+            }else{
+                local sgn to choose 1 if tgt>opt_ else -1.
+                set d_p to sgn*min(max(-stepVmax,del_p/del_sq),stepVmax).
+                diag("minmaxlike: "+del_p/del_sq).
+            }
+        }
+        set node:prograde to node:prograde+d_p.
+        local d_mag is sqrt(d_p^2).
+        wait 0.
+        local b is 0.//not the problem
+        //used to be until b>=5
+        if not (farness(opt())<=farness(opt_)) and d_mag<dv and d_mag>0{
+            set node:prograde to node:prograde-d_p.
+            set d_p to d_p*dv/d_mag.
+
+            set node:prograde to node:prograde+d_p.
+            wait 0.
+        }
+        if not (farness(opt())<=farness(opt_)) from {set b to 0.} until b>=3 or farness(opt())<=farness(opt_) step {set b to b+1.} do {
+            set d_p to d_p/2.
+            set node:prograde to node:prograde-d_p.
+            wait 0.
+        }
+        diag("Optimizing: "+opt()+" DDV: "+sqrt(d_p^2)).
+    }
+}
 local function m_opt_eta {
     parameter node.
     parameter opt.
@@ -614,7 +736,7 @@ local function m_opt_eta {
             if del_sq=0 {
                 set d_e to -del_e/del_mag*stepTmax.
             } else{
-                set d_e to -min(max(-stepTmax,del_e/del_sq),stepTmax).
+                set d_e to -min(max(-stepTmax,-del_e/del_sq),stepTmax).
             }
 
         }else{
@@ -639,6 +761,135 @@ local function m_opt_eta {
             if doUpdate {updt().wait 0.}
         }
         diag("Optimizing: "+opt()+" DEt: "+d_e).
+
+    }
+
+}
+local function m_opt_pro_eta {
+    parameter node.
+    parameter opt.
+    parameter tgt is 0.//usage: "min", "max", or Scalar Value
+    parameter updt is "none".//runs each time node is changed
+    parameter stepTmax is 100.
+    parameter stepVmax is 10.
+    parameter dt is 0.1.//anything lower than 0.01 and del_sq becomes inconsistant
+    parameter dv is 0.001.
+    parameter overflow is 100.
+    local doUpdate is not (updt="none").
+    local function farness {
+        parameter optval.
+        if tgt="min"{
+            return optval.
+        }
+        else if tgt="max"{
+            return -optval.
+        }else{
+            return abs(tgt-optval).
+        }
+    }
+    from {local a is 0.} until a>=overflow step {set a to a+1.} do {
+        local opt_ is opt().
+        local optopt is farness(opt_).
+        set node:eta to node:eta+dt.
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local opt_l is opt().
+        local optopt is min(optopt,farness(opt_l)).
+        set node:eta to node:eta-dt.
+        set node:eta to node:eta-dt.
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local opt_s is opt().
+        local optopt is min(optopt,farness(opt_s)).
+        set node:eta to node:eta+dt.
+
+        set node:prograde to node:prograde+dv.
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local opt_p is opt().
+        local optopt is min(optopt,farness(opt_p)).
+        set node:prograde to node:prograde-dv.
+        set node:prograde to node:prograde-dv.
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local opt_r is opt().
+        local optopt is min(optopt,farness(opt_r)).
+        set node:prograde to node:prograde+dv.
+
+        set node:prograde to node:prograde+dv.
+        set node:eta to node:eta+dt.
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local opt_pl is opt().
+        local optopt is min(optopt,farness(opt_pl)).
+        set node:eta to node:eta-dt.
+        set node:prograde to node:prograde-dv.
+        
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        diag(list(opt_l,opt_,opt_s)).
+        if optopt=farness(opt_){break.}//Nabla approx 0.
+        local del_p is (opt_p-opt_r)/2/dv.
+        local del_e is (opt_l-opt_s)/2/dt.
+        local del_mag is sqrt(del_P^2+del_e^2).
+        //assert del_mag!=0
+        local del_ee is (opt_l+opt_s-2*opt_)/dt^2.
+        local del_pp is (opt_p+opt_r-2*opt_)/dv^2.
+        local del_pe is (opt_+opt_pl-opt_p-opt_r)/dv/dt.//looks good
+        
+        local del_sq is m_util_max(list(del_pp,del_ee,del_pe))*2.//not as good
+        //local del_sq is del_
+        local d_e is 0.
+        local d_p is 0.
+        //for a 2x2 matrix max lambda is leq 2*star
+        diag ("dele="+del_e).diag ("delsq="+del_sq).
+
+        if tgt="max"{
+            if del_sq=0 {
+                set d_e to del_e/del_mag*stepTmax.
+                set d_p to del_p/del_mag*stepVmax.
+                diag("del_sq=0").
+            } else{
+                set d_e to min(max(-stepTmax,del_e/del_sq),stepTmax).
+                set d_p to min(max(-stepVmax,del_p/del_sq),stepVmax).
+            }
+
+        } else if tgt="min"{
+            if del_sq=0 {
+                set d_e to -del_e/del_mag*stepTmax.
+                set d_p to -del_p/del_mag*stepVmax.
+            } else{
+                set d_e to -min(max(-stepTmax,-del_e/del_sq),stepTmax).
+                set d_p to -min(max(-stepVmax,-del_p/del_sq),stepVmax).
+            }
+
+        }else{
+            if del_sq=0 or abs((tgt-opt_)*del_e/del_mag^2)<=abs(del_e/del_sq){
+                set d_e to (tgt-opt_)*del_e/del_mag^2.
+                set d_p to (tgt-opt_)*del_p/del_mag^2.
+                diag("zerolike").
+            }else{
+                local sgn to choose 1 if tgt>opt_ else -1.
+                set d_e to sgn*min(max(-stepTmax,del_e/del_sq),stepTmax).
+                set d_p to sgn*min(max(-stepTmax,del_p/del_sq),stepTmax).
+                diag("minmaxlike: "+del_e/del_sq).
+            }
+        }
+        set node:eta to node:eta+d_e.
+        set node:prograde to node:eta+d_p.
+        if node:eta<=0 {set node:eta to node:eta+ship:orbit:period.}
+        wait 0.
+        if doUpdate {updt().wait 0.}
+        local b is 0.//not the problem
+        from {set b to 0.} until b>=5 or farness(opt())<=farness(opt_) step {set b to b+1.} do {
+            set d_e to d_e/2.
+            set d_p to d_p/2.
+            set node:eta to node:eta-d_e.
+            set node:prograde to node:prograde-d_p.
+            wait 0.
+            if doUpdate {updt().wait 0.}
+        }
+        diag("Optimizing: "+opt()+" DEt: "+d_e+" Dpro: "+d_p).
 
     }
 
@@ -681,30 +932,35 @@ local function m_exec {
     parameter dophyswarp is true.
     parameter timewarpif is {return true.}.
     parameter endif is {return false.}.//ends the burn early if a condition is met and phys timewarp is off.
+    //parameter rebootfunc is {print "m_exec: no reboot function given.".return.}.//have the running func do this
     parameter rot_t is 5.//charactaristic rotation time
+    local reboot is false.//unused
     set throttle_limiter to min(1,throttle_limiter).
-    //print out node's basic parameters - ETA and deltaV
-    print "Node in: " + round(nd:eta) + ", DeltaV: " + round(nd:deltav:mag).
+        //print out node's basic parameters - ETA and deltaV
+        print "Node in: " + round(nd:eta) + ", DeltaV: " + round(nd:deltav:mag).
 
-    //calculate ship's max acceleration
-    local max_acc to ship:maxthrust/ship:mass.
-    // Please note, this is not exactly correct... mass change
-    //
-    local burn_duration to nd:deltav:mag/max_acc.
-    print "Crude Estimated burn duration: " + round(burn_duration) + "s".
-    local np to nd:deltav. //points to node, don't care about the roll direction.
-    //np is a value copy because the local function node:deltav has "get only" access.
-    //all suffixes in kos have a property called "access" which determines whether they returne value or reference.
-    lock steering to np.//TODO steering wont turn with node
+        //calculate ship's max acceleration
+        local max_acc to ship:maxthrust/ship:mass.
+        // Please note, this is not exactly correct... mass change
+        //
+        local burn_duration to nd:deltav:mag/max_acc.
+        print "Crude Estimated burn duration: " + round(burn_duration) + "s".
+        local np to nd:deltav. //points to node, don't care about the roll direction.
+        //np is a value copy because the local function node:deltav has "get only" access.
+        //all suffixes in kos have a property called "access" which determines whether they returne value or reference.
+    if warp=0{
+        
+        lock steering to np.//TODO steering wont turn with node
 
-    //now we need to wait until the burn vector and ship's facing are aligned
-    wait 5.
-    wait until vang(np, ship:facing:vector) < 0.25
-            or nd:deltav:mag<error.
+        //now we need to wait until the burn vector and ship's facing are aligned
+        wait 5.
+        wait until vang(np, ship:facing:vector) < 0.25
+                or nd:deltav:mag<error.
 
-    //the ship is facing the right direction, let's wait for our burn time
-    local w is time:seconds+nd:eta-(burn_duration/2)-10.
-    warpto(w).
+        //the ship is facing the right direction, let's wait for our burn time
+        local w is time:seconds+nd:eta-(burn_duration/2)-10.
+        warpto(w).
+    }else set reboot to true.
     wait until nd:eta <= (burn_duration/2)-9.
     lock steering to np.//wake up, TODO doesnt work but is ok without it
     wait until nd:eta <= (burn_duration/2).
@@ -792,6 +1048,7 @@ local function m_exec {
     SET SHIP:CONTROL:PILOTMAINTHROTTLE TO 0.
     set warpmode to "RAILS".
     set warp to 0.
+    //if reboot {}
     
 }
 local function m_multexec {
@@ -825,7 +1082,9 @@ local function etaNormalNode{
     local tnot is time:seconds.
     local norm_s is vectorCrossProduct(ship:orbit:position-ship:body:position,ship:velocity:orbit).
     set norm_s to norm_s/norm_s:mag.
-    local norm_t is vectorCrossProduct(B:orbit:position-B:body:orbit:position,B:velocity:orbit-B:body:velocity:orbit).
+    //local norm_t is vectorCrossProduct(B:orbit:position-B:body:orbit:position,B:velocity:orbit-B:body:velocity:orbit).
+    //sun:orbit:... cause NullReferenceException on c# side
+    local norm_t is vectorCrossProduct(B:orbit:position-B:body:position,B:velocity:orbit-B:body:velocity:orbit).
     diag (norm_t).//TODO nan later
     set norm_t to norm_t/norm_t:mag.
     local vecto is -vectorCrossProduct(norm_t,norm_s)*a_d.
@@ -882,9 +1141,27 @@ local function closest_approach{
 
 
 }
+local function closest_approach_flat{
+    parameter T is target.
+    parameter nd is nextnode.//dummy node
+    parameter overflow is 10.
+    local l is vcrs(T:position-T:body:position,T:velocity:orbit).
+    from {local a is 0.} until a>overflow step {set a to a+1.} do{
+        local dr is vectorExclude(L, positionAt(ship,time:seconds+nd:eta)-positionAt(T,time:seconds+nd:eta)).
+        local dv is vectorExclude(L,velocityAt(ship,time:seconds+nd:eta):orbit-velocityAt(T,time:seconds+nd:eta):orbit).
+        if dr*dv=0 or dr:mag<50 {break.}
+        set nd:eta to nd:eta-(dr*dv)/dv:sqrmagnitude.
+        if nd:eta<=0 {set nd:eta to nd:eta+ship:orbit:period.}
+    }
+    return vectorExclude(L,(positionAt(ship,time:seconds+nd:eta)-positionAt(T,time:seconds+nd:eta))):mag.
+    //it may seem to not work but it seems to be better than the stock closest approach (it finds closer approaches)
+
+
+}
 local function m_matchInclination{
     parameter B is target.
     parameter soon is false.//if true, go for first node, else go for higher node.
+    parameter before_exec is {parameter nod. return.}.
     local angle is rel_inclination(B).
     local eta_a is etaAscendingNode(B).
     local ttime_a is time:seconds.
@@ -932,8 +1209,8 @@ local function m_matchInclination{
     local vflat is (vat-t_up*(t_up*vat)):mag.
     diag("vflat: "+vflat).
     local nd is node(ttime_+eta_,0,-a_d*vflat*sin(angle),vflat*(cos(angle)-1)).
-    
     add nd.
+    before_exec(nd).
     m_exec(nd).
 
 }
@@ -1591,11 +1868,170 @@ local function plungeTo {//works, including changes to normalnode which now work
 
 }
 local function toPlanet {
+    //TODO add args to bootstrap.
+    //set lex["new"] to 123. can create new index
+    //writeJson overwrites old elements so try:
     parameter B.
+    parameter ht is 80000.
+    parameter dht is 5000.
+    parameter JustGetTime is false.
+    parameter entercode is 0.
+    parameter targetApoRad is (B:radius+ht).
+    //print time:seconds+min(etaAscendingNode(B),etaDescendingNode(B)).
+    local bootlex is readJson("1:/bootstrap.json").
+    if entercode=0{
+    
+    set bootlex["toPlanet_ht"] to ht.
+    set bootlex["toPlanet_dht"] to dht.
+    set bootlex["toPlanet_targetApoRad"] to targetApoRad.
+    set bootlex["toPlanet"] to entercode.
+    writeJson(bootlex,"1:/bootstrap.json").
     local tm is getTransferTime(ship:body,B).
-    //warpto(tm).//TODO timewarp seems to never stop due to loss of power.
-    local nd is node(tm,0,0,0).
+    local nd is 0.
+    if hasNode and not JustGetTime{
+        set nd to nextNode.
+        set tm to nextnode:eta+time:seconds.
+    }else {
+        set nd to node(tm,0,0,0).
+        add nd.
+    }
+    if JustGetTime {
+        return true.//forr use by humans
+    }
+    wait until warp=0.
+    if time:seconds<tm {warpto(tm). wait until time:seconds>tm.}//depends on boot planet_test.
+    diag("ready to eject from planet").
+    local S is ship:body:body.
+    local dvf is getBurnToPlanet(ship:body,B,tm).
+    local psgn is dvf/abs(dvf).
+    local lship is vcrs(ship:position-ship:body:position,ship:velocity:orbit).
+    diag("dvf: "+dvf).
+    getApproxBurnToVelocity(dvf,nd).
+    from {local i is 0.} until i>=3 step {set i to i+1.} do{//works now
+        if not nd:orbit:transition="ESCAPE" until nd:orbit:transition="ESCAPE"{//avoid moon encounters
+            diag("skiporbit.").
+            set nd:eta to nd:eta+ship:orbit:period. wait 0.
+        }
+        local Ang0 is vang(velocityAt(ship,time:seconds+nd:orbit:nextpatcheta-0.1):orbit,
+            psgn*velocityAt(ship:body,time:seconds+nd:orbit:nextpatcheta-0.1):orbit).
+        if vcrs(velocityAt(ship,time:seconds+nd:orbit:nextpatcheta-0.1):orbit,
+            psgn*velocityAt(ship:body,time:seconds+nd:orbit:nextpatcheta-0.1):orbit)*lship<0 {
+                set Ang0 to -Ang0.
+        }
+        diag("Ang0: "+Ang0).
+        //local deta is choose ship:orbit:period*Ang0/360 if dvf>0 else ship:orbit:period*(Ang0-180)/360.
+        local deta is ship:orbit:period*Ang0/360.
+        set nd:eta to nd:eta+deta.
+        if nd:eta<=0 {set nd:eta to nd:eta+ship:orbit:period.}
+        wait 0.
+    }
+    //exit first, optimize later
+
+    m_exec(nd).
+    if not (ship:orbit:transition="FINAL") until (ship:orbit:transition="ESCAPE") and (orbit:nextpatch:body=B:body) {
+        warpTo(time:seconds+orbit:nextpatcheta+1).
+    }else {
+        print "failed to escape".
+        return 1.
+    }
+    warpTo(time:seconds+orbit:nextpatcheta+1).
+    wait until warp=0.
+    wait until ship:body=B:body.
+    
+    unset nd.
+    }
+    local nd is Node(time:seconds+1000,0,0,0).
+    local dnd is node(time:seconds+ship:orbit:period/2,0,0,0).
+    if entercode=0{
     add nd.
+    add dnd.
+    }else if allnodes:length=2{
+        set nd to allNodes[0].
+        set dnd to allNodes[1].
+    }else set dnd to nextnode.
+    if entercode<=0 {
+    //writeJson(lexicon("toPlanet",1),"1:/bootstrap.json").
+    closest_approach_flat(B,dnd).
+    local opt is {
+        if nd:orbit:transition="ENCOUNTER"{
+            return (nd:orbit:nextpatch:periapsis-ht)^2.
+        }else{
+            return (closest_approach_flat(B,dnd)-B:radius-ht)^2.
+        }
+    }.
+    m_opt_pro(nd,opt,"min",1).
+    m_exec(nd,0.01,0.5).
+    diag("B:"+B).
+    }
+    
+
+    local opt2 is {
+        parameter nd.//can also bind ship!!! yay
+        if nd:orbit:transition="ENCOUNTER"{
+            //TODO inclination: try +(vang((nextpatch:inclination-tgtinc)/60)*(nextpatch:periapsis+B:radius))^2
+            // or +((nextpatch angular momentum) cross (target ang momentum))^2
+            return (nd:orbit:nextpatch:periapsis-ht)^2.
+        }else{
+            return (closest_approach(B,dnd)-B:radius-ht)^2.
+        }
+    }.
+    //https://github.com/KSP-KOS/KOS/issues/2087
+    //seem to be getting a C# error here
+    //Object reference does not set to an instance of an object
+    //At: 1079:    local norm_t is ..... B:body:orbit:position,...
+    //FIXED                              ^
+    if entercode<=0 {
+    //writeJson(lexicon("toPlanet",1),"1:/bootstrap.json").
+    local normtime is time:seconds+min(etaAscendingNode(B),etaDescendingNode(B)).
+    if normtime<(choose orbit:nextpatcheta if (orbit:transition="ENCOUNTER") else (time:seconds+dnd:eta)) {
+        //TODO on m_exec, power is lost and reboot is done wrong.
+        m_matchInclination(B,true,{parameter nod.
+            m_opt(nod,opt2:bind(nod),"min",1).
+            set bootlex["toPlanet"] to 1.
+            writeJson(bootlex,"1:/bootstrap.json").
+        }).
+    }
+    }
+    if entercode=1 {
+    //writeJson(lexicon("toPlanet",1),"1:/bootstrap.json").
+        m_exec(nextNode).
+        if entercode<=0 {
+            set bootlex["toPlanet"] to 2.
+            writeJson(bootlex,"1:/bootstrap.json").
+    }
+    }
+    if (entercode<=2) and (allNodes:length=2){
+        m_exec(nextnode,0.01,0.3).
+    }
+    if (entercode<2) {
+        set bootlex["toPlanet"] to 2.
+        writeJson(bootlex,"1:/bootstrap.json").
+    }
+    if (entercode<=2) until (ship:orbit:transition="ENCOUNTER") and (opt2:bind(ship)()<dht^2){
+        local cnd is node(time:seconds+
+            (choose ship:orbit:nextpatcheta if ship:orbit:transition="ENCOUNTER" else dnd:eta)
+            *0.7,0,0,0).
+        add cnd.
+        m_opt(cnd,opt2:bind(cnd),"min",0.3).//BOOKMARK last crash, from not adding node
+        m_exec(cnd,0.01,0.3).
+    }
+    set bootlex["toPlanet"] to 3.
+    writeJson(bootlex,"1:/bootstrap.json").
+    if (warp=0) warpTo(time:seconds+orbit:nextpatcheta+1).
+    wait until warp=0.
+    wait until ship:body=B.
+    remove dnd.
+    local vi2 is velocityat(SHIP, time:seconds +eta:periapsis):orbit:mag.
+    diag ("Entry eccentricity:="+ship:orbit:eccentricity).
+    local Ul is U_e(ship:orbit:eccentricity).
+    local U_f is U(targetApoRad/(B:radius+ship:periapsis)).//1.0 for a circle
+    local nd2 is node(time:seconds+eta:periapsis,0,0,(U_f/Ul-1)*vi2).
+    add nd2.
+    m_exec().//(parameter is nd2)
+    //TODO correct for moon encounters
+    //maybe add another powerout check here
+    //now correct soon: ~14 m/s
+
 }
 local function testpatch {
     local frame_out is "".
@@ -1621,69 +2057,7 @@ local function testpatch {
 if debug{
     clearScreen.
     //print "Listmax:="+m_util_max(list(1,2,3,4,5)).
-    if false{
-        until false{
-            wait 1.0.
-            invalidateNextPatch().
-            local patch is getshipnextpatch().
-            //still cannot consistantly retrieve a next patch
-            diag(patch).
-            if not (patch="null"){
-                diag("periapsis: "+patch:periapsis).
-            }
-        }
-    }
-    if false {until false{
-        testpatch().
-    }}
-    //set target to mun.
-    //delagate conversion
-    //same name not allowed
-    //global manuverTo is manuverTo@.
-    if false{manuverTo(15000,mun,2000).}//works.
-    //this one now workes
-    if false {//big success
-        local nd is nextNode.
-        local ht is 30000.
-        local function err{
-            return nd:orbit:nextpatch:periapsis-ht.
-        }
-        m_opt(nd,err@).//TODO impose restrictions that work.
-        //example: an optimization manuver for  mun encounter may lower periapsis into the planet.
-        m_exec(nd,0.01,0.2).
-    }
-    if FALSE{
-        m_matchInclination(minmus).
-    }
-    if false {
-        trim_orbit(300000,200000).
-    }
-    if false {
-        until false{
-            print "distance: "+closest_approach().
-            wait 1.
-        }
-    }
-    if false {//fail
-        until false{
-            //print "dist from ascending node:"+closest_approach().
-            print "dist from periapsis:"+
-            (getPerapsisDirVec(ship:orbit)*(ship:periapsis+body:radius)-body:position):mag at (2,2).
-            wait 1.
-        }
-    }
-    if false {manuverto (0,target,10).}
-    if false {dockApproach(target,0).}//big succes but should test in unideal situations
-    if false {//big success
-        until false {
-            print getOrbitRadiusAtVec(target,-body:position):mag.
-            wait 1.
-        }
-    }
-    if false {m_opt_eta(nextnode,{return nextnode:orbit:apoapsis.},"max").}//big success
-    if false {manuverToApsi(20000,mun,2000).}
-    if false {plungeTo(20000).}
-    if false {getTransferTime(kerbin,eve).}
+    
     //ship is a Vessel, mun is a Body. TODO add support for docking manuvers
 }
 //even though we dont have to do this, it is a good idea because we can rename then to avoid nameing conflicts

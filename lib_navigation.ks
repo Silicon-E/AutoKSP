@@ -77,3 +77,7 @@ global GO_TO_SURFACE is {
 	BRAKES on.
 	print "Done.".
 }.
+global GO_TO_PLANET is {
+	parameter B.
+	//reboot erases globals
+}.
