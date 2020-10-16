@@ -18,7 +18,7 @@ declare TURN_START_ALT to -1.
 if SHIP:ORBIT:BODY:ATM:EXISTS {
 	set TURN_START_ALT to PRESSURE_TO_ALT(KERBIN:ATM:ALTITUDEPRESSURE(2_000), SHIP:ORBIT:BODY:ATM).
 } else {
-	set TURN_START_ALT to LERP(SHIP:ALTITUDE, LOWEST_SAFE_ORBIT_ALT(SHIP:ORBIT:BODY), 0.03). // 3% the way to low orbit
+	set TURN_START_ALT to LERP(SHIP:ALTITUDE, LOWEST_SAFE_ORBIT_ALT(SHIP:ORBIT:BODY), 0.02). // 2% the way to low orbit
 }
 print "  Gravity Turn Start Altitude: "+TURN_START_ALT.
 
@@ -26,7 +26,7 @@ declare TURN_PROGRADE_ALT to -1.
 if SHIP:ORBIT:BODY:ATM:EXISTS {
 	set TURN_PROGRADE_ALT to PRESSURE_TO_ALT(KERBIN:ATM:ALTITUDEPRESSURE(10_000), SHIP:ORBIT:BODY:ATM).
 } else {
-	set TURN_PROGRADE_ALT to LERP(SHIP:ALTITUDE, LOWEST_SAFE_ORBIT_ALT(SHIP:ORBIT:BODY), 0.2). // 20% the way to low orbit
+	set TURN_PROGRADE_ALT to LERP(SHIP:ALTITUDE, LOWEST_SAFE_ORBIT_ALT(SHIP:ORBIT:BODY), 0.1). // 10% the way to low orbit
 }
 print "  Gravity Turn Prograde Altitude: "+TURN_PROGRADE_ALT.
 
@@ -42,26 +42,47 @@ set NAVMODE to "surface".
 lock STEERING to SHIP:UP:VECTOR.
 lock THROTTLE to 1.
 set GEAR to FALSE.
+set WARPMODE to "PHYSICS".
+set WARP to 3.
 wait until SHIP:ALTITUDE >= TURN_START_ALT.
 // Begin gravity turn
 print "  Begin gravity turn.".
+set WARPMODE to "PHYSICS".
+set WARP to 2.
 until SHIP:ALTITUDE >= TURN_PROGRADE_ALT {
 	lock STEERING to HEADING(90, LERP(90, 45, (SHIP:ALTITUDE-TURN_START_ALT)/(TURN_PROGRADE_ALT-TURN_START_ALT))).
 }
 // Finish gravity turn
+set WARPMODE to "PHYSICS".
+set WARP to 3.
 if SHIP:UP:VECTOR * SHIP:SRFPROGRADE:VECTOR > 0.707 {
 	print "  Hold 45 degree pitch.".
 	lock STEERING to HEADING(90, 45).
 	wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000  or  SHIP:UP:VECTOR * SHIP:SRFPROGRADE:VECTOR <= 0.707.
 }
 print "  Turn to prograde.".
+when SHIP:ORBIT:APOAPSIS > ORBIT_ALT-5000 then {
+	set WARP to 0.
+}
 lock STEERING to choose SHIP:PROGRADE if NAVMODE="orbit" else SHIP:SRFPROGRADE.
 wait until SHIP:ORBIT:APOAPSIS > ORBIT_ALT-1000.
 if SHIP:ORBIT:BODY:ATM:EXISTS and SHIP:ALTITUDE <= SHIP:ORBIT:BODY:ATM:HEIGHT {
 	print "  Maintain target apoapsis...".
 	lock THROTTLE to choose 1 if SHIP:ORBIT:APOAPSIS < ORBIT_ALT-1000 else 0.
 }
+set WARPMODE to "PHYSICS".
+set WARP to 3.
 wait until not SHIP:ORBIT:BODY:ATM:EXISTS or SHIP:ALTITUDE>SHIP:ORBIT:BODY:ATM:HEIGHT.
+set WARP to 0.
+wait until KUNIVERSE:TIMEWARP:RATE = 1.
+set KUNIVERSE:TIMEWARP:MODE to "rails".
+wait 0.1.
+KUNIVERSE:TIMEWARP:WARPTO(TIME:SECONDS + ETA:APOAPSIS - (ORBIT_SPEED-SHIP:VELOCITY:ORBIT:MAG)/AVAILABLE_ACCEL() - 30).
+wait until KUNIVERSE:TIMEWARP:RATE = 1.
+set KUNIVERSE:TIMEWARP:MODE to "physics".
+wait 0.1.
+set WARPMODE to "PHYSICS".
+set WARP to 1.
 // Circularize
 print "  Begin circularization.".
 SAS off.
@@ -71,11 +92,13 @@ lock THROTTLE to choose 0 if AVAILABLE_ACCEL()=0 else (choose 1 if ETA:APOAPSIS>
 wait until SHIP:ORBIT:APOAPSIS>ORBIT_ALT-1000 and SHIP:ORBIT:PERIAPSIS>ORBIT_ALT-1000 and ORBIT_ALT-SHIP:ALTITUDE<1000.
 // Done with launch.
 print "  Launch complete.".
+set WARP to 0.
 unlock STEERING.
 lock THROTTLE to 0.
 unlock THROTTLE.
 set SHIP:CONTROL:MAINTHROTTLE to 0.
 SAS off.
+wait until KUNIVERSE:TIMEWARP:RATE = 1.
 
 function LERP {
 	declare parameter A.

@@ -67,7 +67,10 @@ global GO_TO_SURFACE is {
 			}
 		} else if SHIP:ORBIT:PERIAPSIS>0 and SHIP:ORBIT:APOAPSIS>0 {
 			runpath("0:/AutoKSP/goto_clear_path.ks", SHIP:RETROGRADE:VECTOR).
-			runpath("0:/AutoKSP/deorbit.ks").
+			// Only perform a deorbit burn if there is no atmosphere OR our periapsis is above the atmosphere
+			if (not(SHIP:ORBIT:BODY:ATM:EXISTS)) or SHIP:PERIAPSIS > SHIP:ORBIT:BODY:ATM:HEIGHT {
+				runpath("0:/AutoKSP/deorbit.ks").
+			}
 			runpath("0:/AutoKSP/land.ks").
 		} else { // Either periapsis or apoapsis is below sea level; use simple landing.
 			print "Collision course detected. Use emergency landing procedure.".
@@ -75,6 +78,41 @@ global GO_TO_SURFACE is {
 		}
 	}
 	BRAKES on.
+	print "Done.".
+}.
+
+global DOCK_WITH_VESSEL is {
+	parameter VESS is TARGET.
+	
+	print "Begin going to dock with "+VESS:NAME+".".
+	until SHIP:BODY=VESS:BODY {
+		local ON_GROUND is SHIP:BOUNDS:BOTTOMALTRADAR < 100.
+		// Of on ground, launch to orbit:
+		if ON_GROUND { // ON_GROUND behaves poorly because radar altitude doesn't recognize the launchpad
+			if SHIP:VELOCITY:SURFACE:MAG<0.1 {
+				if SHIP:ORBIT:BODY=PLANET {
+					RUNPATH("0:/AutoKSP/simple_launch.ks", PERI).
+				} else {
+					RUNPATH("0:/AutoKSP/simple_launch.ks").
+				}
+			} else {
+				print "  Brake.".
+				BRAKES on.
+				wait until SHIP:VELOCITY:SURFACE:MAG<0.1.
+			}
+		}
+		// If in orbit, adjust orbit or transfer:
+		else if SHIP:ORBIT:PERIAPSIS>0 and SHIP:ORBIT:APOAPSIS>0 {
+			RUNPATH("0:/AutoKSP/maneuver.ks", VESS:APOAPSIS, VESS:BODY, 1000, TRUE).
+		}
+	}
+	RUNPATH("0:/AutoKSP/rendezvous.ks", VESS).
+	set TARGET to VESS.
+	RUNPATH("0:/AutoKSP/BasicDock.ks").
+	lock THROTTLE to 0.
+	unlock THROTTLE.
+	unlock STEERING.
+	SAS off.
 	print "Done.".
 }.
 global GO_TO_PLANET is {

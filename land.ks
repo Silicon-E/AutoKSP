@@ -59,16 +59,21 @@ if IS_POWERED_DESCENT {
 		}
 		lock THROTTLE to 0.
 		unlock THROTTLE.
+		SAS off.
 		// Simple Landing:
 		runpath("0:/AutoKSP/simple_land.ks").
 		set SHOULD_END to TRUE.
 	}
-	until TIME:SECONDS >= BURN_START_TIME or SHOULD_END {
-		local NEW_START_TIME is ESTIMATE_PATH(40).
-		if not (TIME:SECONDS >= BURN_START_TIME) {
-			set BURN_START_TIME to NEW_START_TIME.
-		}
+	
+	local NEW_START_TIME is ESTIMATE_PATH(40).
+	if not (TIME:SECONDS >= BURN_START_TIME) {
+		set BURN_START_TIME to NEW_START_TIME.
+		set KUNIVERSE:TIMEWARP:MODE to "rails".
+		KUNIVERSE:TIMEWARP:WARPTO(BURN_START_TIME - 10).
 	}
+} else {
+	wait until SHIP_BOUNDS:BOTTOMALTRADAR < 0.1.
+	set SHOULD_END to TRUE.
 }
 wait until SHOULD_END.
 // Final cleanup
@@ -143,7 +148,7 @@ local function ESTIMATE_PATH {
 		if(TIME:SECONDS >= BURN_START_TIME) { return. }
 	}
 	
-	print "Final Radar Alt: "+NEW_FINAL_RADAR_ALT at(0,5).
+	print "  Final Radar Alt: "+NEW_FINAL_RADAR_ALT.
 	return START_TIME.
 }
 
