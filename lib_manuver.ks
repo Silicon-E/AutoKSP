@@ -1168,7 +1168,8 @@ local function m_matchInclination{
     local eta_d is etaDescendingNode(B).
     local ttime_d is time:seconds.
     local ttime_ is 0.
-    
+    local LB is vcrs(B:position-B:body:position,B:velocity:orbit).
+    local LS is vcrs(ship:position-ship:body:position,ship:velocity:orbit).
     diag ("angle: "+angle).
     local eta_ is 0.
     local a_d is 0.//not set yet
@@ -1207,8 +1208,13 @@ local function m_matchInclination{
     diag("vat: "+vat).
     local t_up is (positionAt(ship,ttime_+eta_)-ship:body:position):normalized.
     local vflat is (vat-t_up*(t_up*vat)):mag.
+    //new code below
+    local vf is vectorExclude(LB,vat):normalized*vat:mag.
+    local rout is vcrs(vat,LS):normalized.
     diag("vflat: "+vflat).
-    local nd is node(ttime_+eta_,0,-a_d*vflat*sin(angle),vflat*(cos(angle)-1)).
+    //local nd is node(ttime_+eta_,0,-a_d*vflat*sin(angle),vflat*(cos(angle)-1)*cos(asym)).
+    local nd is node(ttime_+eta_,(vf-vat)*rout,-(vf-vat)*LS:normalized,(vf-vat)*vat:normalized).
+    //left handed coords, normal is neg. L
     add nd.
     before_exec(nd).
     m_exec(nd).
