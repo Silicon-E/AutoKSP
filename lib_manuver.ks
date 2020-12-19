@@ -14,6 +14,15 @@ local function modu {
     if r<0 {set r to r+b.}.
     return r.
 }
+local function modsym {
+    //symetric branch modulus
+    //mod(-0.1,1)=-0.1; not 0.9
+    parameter a,b.
+    local r is mod(a,b).
+    if r<0 {set r to r+b.}.
+    if (r>b/2) {set r to r-b.}
+    return r.
+}
 local function get_v_c {
     parameter B.
     parameter Rad.
@@ -962,6 +971,7 @@ local function m_exec {
         warpto(w).
     }else set reboot to true.
     wait until nd:eta <= (burn_duration/2)-9.
+    //set np to nd:deltav.//did nothing
     lock steering to np.//wake up, TODO doesnt work but is ok without it
     wait until nd:eta <= (burn_duration/2).
     //we only need to lock throttle once to a certain variable in the beginning of the loop, and adjust only the variable itself inside it
@@ -1874,24 +1884,75 @@ local function plungeTo {//works, including changes to normalnode which now work
 
 }
 local function toPlanet {
-    //TODO add args to bootstrap.
+    ///now depends on smartboot; bootlex["toPlanet"]=entercode
     //set lex["new"] to 123. can create new index
     //writeJson overwrites old elements so try:
     parameter B.
     parameter ht is 80000.
     parameter dht is 5000.
     parameter JustGetTime is false.
-    parameter entercode is 0.
+    parameter entercode is -1.//-1 will serialize args
     parameter targetApoRad is (B:radius+ht).
+    parameter targetPlane is "None".
+        //can be: string (None), body (moon), scalar (inclination degrees)
     //print time:seconds+min(etaAscendingNode(B),etaDescendingNode(B)).
-    local bootlex is readJson("1:/bootstrap.json").
-    if entercode=0{
+    parameter bootlex is readJson("1:/bootstrap.json").
+    //TODO decide if caller or function serializes args
+    local argsModif is true.
+    if entercode<=-1{
+        set entercode to 0.
+        if argsModif {
+            if (B:body <> ship:body:body) and 
+            (B:body:body = ship:body:body){
+                print "target is a moon.".
+                print "targeting orbital plane of: "+B.
+                set targetPlane to B.
+                set B to B:body.
+                set targetApoRad to max(B:radius+targetPlane:orbit:periapsis,targetApoRad).
+                set targetApoRad to min(B:radius+targetPlane:orbit:apoapsis,targetApoRad).
+                //set targetApoRad to B.//needs additional snippet at end
+            }
+        }
+        set bootlex["toPlanet_ht"] to ht.
+        set bootlex["toPlanet_B"] to B.
+        set bootlex["toPlanet_dht"] to dht.
+        set bootlex["toPlanet_targetApoRad"] to targetApoRad.
+        set bootlex["toPlanet"] to entercode.
+        set bootlex["toPlanet_targetPlane"] to targetPlane.
+        //writeJson(bootlex,"1:/bootstrap.json").
+        save().
+    }else{
+        set ht to bootlex["toPlanet_ht"].
+        set B to bootlex["toPlanet_B"].
+        set dht to bootlex["toPlanet_dht"].
+        //dont set retcode
+        set targetApoRad to bootlex["toPlanet_targetApoRad"].
+        set targetPlane to bootlex["toPlanet_targetPlane"].
+    }
+    //diag(targetPlane).
+    //diag(targetPlane:typename).
+    local planeFlag is 0.
+    if (targetPlane:typename="Body"){
+        set planeFlag to 1.
+        diag("targetPlane body").
+        if((targetPlane:body <> B) and (targetPlane <> B)){
+            print "body: "+targetPlane+" is not, or not a moon of: "+B.
+            return.
+        }
+    }
+    else if (targetPlane:typename <> "String"){
+        diag("targetPlane inclination").
+        set planeFlag to 2.
+    }
+    if entercode<=0{
     
-    set bootlex["toPlanet_ht"] to ht.
-    set bootlex["toPlanet_dht"] to dht.
-    set bootlex["toPlanet_targetApoRad"] to targetApoRad.
-    set bootlex["toPlanet"] to entercode.
-    writeJson(bootlex,"1:/bootstrap.json").
+    //set bootlex["toPlanet_ht"] to ht.
+    //set bootlex["toPlanet_dht"] to dht.
+    //set bootlex["toPlanet_targetApoRad"] to targetApoRad.
+    //set bootlex["toPlanet"] to entercode.
+    //set bootlex["toPlanet_targetPlane"] to targetPlane.
+    //writeJson(bootlex,"1:/bootstrap.json").
+    save().
     local tm is getTransferTime(ship:body,B).
     local nd is 0.
     if hasNode and not JustGetTime{
@@ -1947,9 +2008,10 @@ local function toPlanet {
     unset nd.
     }
     local nd is Node(time:seconds+1000,0,0,0).
-    local dnd is node(time:seconds+ship:orbit:period/2,0,0,0).
-    if entercode=0{
+    local dnd is 0.
+    if entercode<=0{
     add nd.
+    set dnd to node(time:seconds+ship:orbit:period/2,0,0,0).
     add dnd.
     }else if allnodes:length=2{
         set nd to allNodes[0].
@@ -1961,6 +2023,7 @@ local function toPlanet {
     local opt is {
         if nd:orbit:transition="ENCOUNTER"{
             return (nd:orbit:nextpatch:periapsis-ht)^2.
+            //ignore inclination here
         }else{
             return (closest_approach_flat(B,dnd)-B:radius-ht)^2.
         }
@@ -1974,9 +2037,39 @@ local function toPlanet {
     local opt2 is {
         parameter nd.//can also bind ship!!! yay
         if nd:orbit:transition="ENCOUNTER"{
-            //TODO inclination: try +(vang((nextpatch:inclination-tgtinc)/60)*(nextpatch:periapsis+B:radius))^2
+            //TODO test inclination: try +(vang((nextpatch:inclination-tgtinc)/60)*(nextpatch:periapsis+B:radius))^2
             // or +((nextpatch angular momentum) cross (target ang momentum))^2
-            return (nd:orbit:nextpatch:periapsis-ht)^2.
+            local o is (nd:orbit:nextpatch:periapsis-ht)^2.
+            
+            if(planeFlag=1){
+                local dang is 30.//old 50
+                local tim is nd:orbit:nextpatcheta+time:seconds+5.
+                
+                local l1 is vcrs(targetPlane:position-targetPlane:body:position,
+                    targetPlane:velocity:orbit-targetPlane:body:velocity:orbit):normalized().
+                local angmin is 90-vang(velocityAt(ship,tim):orbit,
+                    l1). set angmin to abs(angmin).
+                //local lp is vcrs(positionAt(ship,tim)-positionAt(B,tim),
+                //    velocityAt(ship,tim):orbit):normalized().
+                local lp is v(cos(nd:orbit:nextpatch:lan)*sin(nd:orbit:nextpatch:inclination),
+                sin(nd:orbit:nextpatch:lan)*sin(nd:orbit:nextpatch:inclination),
+                cos(nd:orbit:nextpatch:inclination)).
+                local l is v(cos(targetPlane:orbit:lan)*sin(targetPlane:orbit:inclination),
+                sin(targetPlane:orbit:lan)*sin(targetPlane:orbit:inclination),
+                cos(targetPlane:orbit:inclination)).
+                set o to o+(max(0,vang(l,lp)-angmin)/dang)^2*(nd:orbit:nextpatch:periapsis+B:radius)^2.
+            }else if(planeFlag=2){
+                local dang is 30.
+                local tim is nd:orbit:nextpatcheta+time:seconds+5.
+                
+                local ang is 90-vang(velocityAt(ship,tim):orbit,
+                    v(0,1,0)). set ang to abs(ang).
+                if (targetPlane>ang){set ang to targetPlane.}
+                set o to o+(nd:orbit:nextpatch:periapsis+B:radius)^2
+                *((modsym(ang-nd:orbit:nextpatch:inclination,360))/dang)^2.
+                //is a problem for 
+            }
+            return o.
         }else{
             return (closest_approach(B,dnd)-B:radius-ht)^2.
         }
@@ -1994,7 +2087,8 @@ local function toPlanet {
         m_matchInclination(B,true,{parameter nod.
             m_opt(nod,opt2:bind(nod),"min",1).
             set bootlex["toPlanet"] to 1.
-            writeJson(bootlex,"1:/bootstrap.json").
+            //writeJson(bootlex,"1:/bootstrap.json").
+            save().
         }).
     }
     }
@@ -2003,7 +2097,8 @@ local function toPlanet {
         m_exec(nextNode).
         if entercode<=0 {
             set bootlex["toPlanet"] to 2.
-            writeJson(bootlex,"1:/bootstrap.json").
+            //writeJson(bootlex,"1:/bootstrap.json").
+            save().
     }
     }
     if (entercode<=2) and (allNodes:length=2){
@@ -2011,7 +2106,8 @@ local function toPlanet {
     }
     if (entercode<2) {
         set bootlex["toPlanet"] to 2.
-        writeJson(bootlex,"1:/bootstrap.json").
+        //writeJson(bootlex,"1:/bootstrap.json").
+        save().
     }
     if (entercode<=2) until (ship:orbit:transition="ENCOUNTER") and (opt2:bind(ship)()<dht^2){
         local cnd is node(time:seconds+
@@ -2022,7 +2118,8 @@ local function toPlanet {
         m_exec(cnd,0.01,0.3).
     }
     set bootlex["toPlanet"] to 3.
-    writeJson(bootlex,"1:/bootstrap.json").
+    //writeJson(bootlex,"1:/bootstrap.json").
+    save().
     if (warp=0) warpTo(time:seconds+orbit:nextpatcheta+1).
     wait until warp=0.
     wait until ship:body=B.
