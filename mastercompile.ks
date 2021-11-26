@@ -9,11 +9,11 @@ local bintext is "bin".
 local root is "0:/src/".
 local this is "mastercompile".
 if isGit {
-    cd("0:/AutoKSP/").
+    if (ship:connection:isconnected) {cd("0:/AutoKSP/").}
     set root to "0:/AutoKSP/".
     set bin to "./bin/".//for my use: "../bin/"; for auto ksp: "./bin/"
 }else {
-    cd("0:/src/").
+    if (ship:connection:isconnected) {cd("0:/src/").}
     set root to "0:/src/".
     //local root is "1:".//may not want to debug this in archive.
     set bin to "../bin/".//for my use: "../bin/"; for auto ksp: "./bin/"
@@ -64,6 +64,7 @@ local function comp{
 global libs is list().//may need to reload libs if power is lost.
 
 global function import {
+    //WARNING: dont use during timewarp
     parameter lib.//no extension. relative to root dir
     parameter first is true.//add to lib list
     parameter runit is true.//dont use, use 

@@ -1,11 +1,37 @@
 parameter debug is true.
 local dquote is char(34).
+//the lowest safe orbital height with a buffer zone; lowest that lib_manuver will plan to go
+global manuver_LowestSafeOrbitWithBuffer is lexicon(//https://forum.kerbalspaceprogram.com/index.php?/topic/31128-lowest-orbit/
+    kerbin:name,80_000,
+    mun:name,10_000,//terain feature at 3,335
+    minmus:name,7_000,//terain at 5,725
+    duna:name,46_000, //atm at 69_079
+    ike:name,15_000, //terrain at 12,446
+    Eve:name,110_000,//atm at 96,709
+    Gilly:name,8_000,//terraiin 6,400
+    Moho:name,9_000,//terrain 6,753
+    dres:name,8_000,//terain 5,670
+    eeloo:name,5_500,//terrain 3,869
+    jool:name,160_000,//atm 138,200
+    laythe:name,65_000,//atm 55,262
+    vall:name,10_000,//terrain 7,976
+    tylo:name,17_000,//terrain 12,695
+    bop:name,24_000,//terrain 21,749
+    pol:name,7_000//terrain 5,585
+    ).//underscores can be freely added to scalars
 //ctrl-K-0 to fold all, ctrl_K-J to unfold all (fold is colapse)
 //maybe todo find compile directive to turn of parenticeless local function calls.
 //math util
 //v=v_c*U
 //r=R_0*H
 //note to self: you can get rid of stock ships by moving the contents of {KSP}/Ships elsewhere.
+local function determinent{
+    //maybe make global
+    parameter v1.
+    parameter v2.
+    parameter v3.
+    return vcrs(v1,v2)*v3.//v1 cross v2 dot v3;
+}
 local function modu {
     //positive branch modulus
     //mod(-0.1,1)=-0.1; not 0.9
@@ -48,14 +74,40 @@ local function H{
 local function Ui{
     parameter Vf.
     parameter Vc.
-    return sqrt(2+Vf^2/Vc^2).
+    parameter Hf is "none".//take into account finite SOI
+    if(Hf="none" or Hf<1)return sqrt(2+Vf^2/Vc^2).//infinite SOI
+    else return sqrt(2-2/Hf+Vf^2/Vc^2).
+
+}
+local function Ui_of_Uvf{
+    parameter U_f.
+    parameter Hf is "none".//take into account finite SOI
+    if(Hf="none" or Hf<1)return sqrt(2+U_f^2).//infinite SOI
+    else return sqrt(2-2/Hf+U_f^2).
 
 }
 local function Uf{//warning, imag output possible
     parameter Ui.
     return sqrt(Ui^2-2).
 }
+local function TimeOfNextPeriapsis{
+    parameter orb.
+    //True anomaly is the geometric angle from Periapsis
+    //Mean Anomaly is the time from periapsis (360/period)
+    //planets have epoch of time=0;
+    return orb:epoch+orb:period*(360-orb:meananomalyatepoch)/360.
+}
+local function orbitVelocityAt{
+    ///Dont USE
+    parameter BV.
+    parameter time.
+    //TODO figure out
+    //velocityAt(obj,time):orbit gives its velocity relitive to its own body right now
+    //velocityAt(kerbin,time)=~9700
+    //velocityAt(ship,nextPatchEta+1):orbit gives velocity around NEW body
+    //
 
+}
 local function orbitPolar{
     parameter orb.
     parameter tanm.//true anomaly
@@ -167,13 +219,24 @@ local function getPerapsisDirVecOld{//can work but is bad
 }
 local function getPerapsisDirVec{
     parameter B.
-    parameter overflow is 10.//wont use
-    local tan is B:orbit:trueAnomaly.
+    //parameter overflow is 10.//depricated and unused
+    local tan is B:orbit:trueAnomaly.//uses geometric angle
+    //could possibly have used positionAt
     local pos is (B:position()-B:body:position()).
     local vel is B:velocity:orbit.
     local l is vcrs(pos,vel):normalized.
     local s is vcrs(pos,l):normalized.
     return (pos:normalized*cos(tan)+s*sin(tan)):normalized.
+}
+local function getPerapsisDirVecOfLaterPatch{
+    parameter B.
+    parameter orb is B:orbit.//future orbit of B
+    //should be capable of replacing getPerapsisDirVec due to default argument and no use of overflow
+    //parameter overflow is 10.//depricated and unused
+    local tan is orb:trueAnomaly.//uses geometric angle
+    //could possibly have used positionAt
+    local tp is TimeOfNextPeriapsis(orb).
+    return (positionAt(B,tp)-positionAt(orb:body,tp)):normalized.
 }
 local function getApproxBurnTo {
     parameter B.
@@ -212,13 +275,77 @@ local function getApproxBurnToVelocity {
     set nd:prograde to 0.
     set nd:normal to 0.
     set nd:radialout to 0.
-    local vc0 is sqrt(ship:body:mu/(positionat(ship, t) -ship:orbit:BODY:POSITION):mag).
+    local rc0 is (positionat(ship, t) -ship:orbit:BODY:POSITION):mag.
+    local vc0 is sqrt(ship:body:mu/rc0).
     local U0 is velocityAt(ship,t):orbit:mag/vc0.
-    set nd:prograde to vc0*(Ui(Vf,Vc0)-U0).//works well now
+    Local HSOI is ship:body:soiradius/rc0.
+    diag("vc0,HSOI,U0"+vc0+" , "+HSOI+" , "+U0).
+    set nd:prograde to vc0*(Ui(Vf,Vc0,HSOI)-U0).//works well now
     //wait 1.
 
 }
-local function getOrbitRadiusAtVec {//returns as vector
+local function getApproxBurnToVelocityRet {
+    parameter Vf.
+    parameter moon is ship:body.
+    parameter t is time:seconds+nextnode:eta.
+    //local rc0 is (positionat(ship, t) -ship:orbit:BODY:POSITION):mag.//old code, wrong
+    local rc0 is (positionat(moon, t) -positionat(moon:body, t)):mag.
+    local vc0 is sqrt(moon:body:mu/rc0).
+    Local HSOI is moon:body:soiradius/rc0.
+    local U0 is velocityAt(moon,t):orbit:mag/vc0.
+    diag("vc0,HSOI,U0"+vc0+" , "+HSOI+" , "+U0).
+    return  vc0*(Ui(Vf,Vc0,HSOI)-U0).
+    //velocity relative to moon
+    //wait 1.
+
+}
+local function shouldDive{
+    parameter v_f.//=v_f/v_moon
+    parameter moon.
+    //parameter t is time:seconds+nextnode:eta.//unused
+    //seems to be (approximately) correct now
+    local rc1 is ship:orbit:semimajoraxis.//(positionat(ship, t) -positionat(moon, t)):mag.
+    local vc1 is sqrt(moon:mu/rc1).
+    local rc2 is moon:orbit:semimajoraxis.//(positionat(moon, t) -positionat(moon:body, t)):mag.
+    local vc2 is sqrt(moon:body:mu/rc2).
+    local U_f is v_f/vc2.
+    local HSOI_planet is moon:body:soiradius/rc2.//take into account finite SOI
+    local HSOI_moon is moon:soiradius/rc1.//take into account finite SOI
+    local Hmin is (moon:body:radius+manuver_LowestSafeOrbitWithBuffer[moon:body:name])/rc2.//lowest safe orbit H, is always the optimal one
+    //TODO fine tune (dnw for bop, tylo, etc)
+    local M is get_v_c(moon:body,moon:orbit:semimajoraxis)/get_v_c(moon,ship:orbit:semimajoraxis).//=v_moon / v_ship
+    //direct: sym.sqrt(2+M**2*(sym.sqrt(2+Uf**2)-1)**2)-1
+    //dive: M*(sym.sqrt(2/H+Uf**2)-sym.sqrt(2/(H*(H+1))))+sym.sqrt(2+M**2*(1-sym.sqrt(2*H/(H+1)))**2)-1
+    local direct is Ui_of_Uvf(M*(Ui_of_Uvf(U_f,HSOI_planet)-1),HSOI_moon)-1.
+    local dive is M/sqrt(Hmin)*(Ui_of_Uvf(U_f*sqrt(Hmin),HSOI_planet/Hmin)-U(1/Hmin))+Ui_of_Uvf(M*U(Hmin),HSOI_moon)-1.
+    print "params: "+list(vc1,vc2,v_f,M,U_f,Hmin,HSOI_moon,HSOI_planet).//params check out
+    print "direct: "+direct*vc1.
+    print "dive:"+dive*vc1.
+    return (dive<direct).
+}
+local function lockEtaToParallelEjection{
+    parameter nd is nextNode.
+    parameter psgn is 1.0.
+    local t is time:seconds+nd:eta.//initial eta time, stay within a period/2 of this
+    local lship is vcrs(ship:position-ship:body:position,ship:velocity:orbit).
+    from {local i is 0.} until i>=3 step {set i to i+1.} do{//works now
+            //no moon moons
+            local Ang0 is vang(velocityAt(ship,time:seconds+nd:orbit:nextpatcheta-0.1):orbit,
+                psgn*velocityAt(ship:body,time:seconds+nd:orbit:nextpatcheta-0.1):orbit).
+            if vcrs(velocityAt(ship,time:seconds+nd:orbit:nextpatcheta-0.1):orbit,
+                psgn*velocityAt(ship:body,time:seconds+nd:orbit:nextpatcheta-0.1):orbit)*lship<0 {
+                    set Ang0 to -Ang0.
+            }
+            diag("Ang0: "+Ang0).
+            //local deta is choose ship:orbit:period*Ang0/360 if dvf>0 else ship:orbit:period*(Ang0-180)/360.
+            local deta is ship:orbit:period*Ang0/360.
+            set nd:eta to nd:eta+deta.
+            if nd:eta<=0 {set nd:eta to nd:eta+ship:orbit:period.}
+            wait 0.
+        }
+
+}
+local function getOrbitRadiusAtVecOld {//returns as vector
     //"To travel the stars, you must learn that you are not the center of the cosmos...
     //to write a kos script, you must unlearn this lie."
     parameter B.//cannot just use orbit because {italic} positionat needs an orbitablllle...
@@ -261,6 +388,28 @@ local function getOrbitRadiusAtVec {//returns as vector
     return positionat(B,tnot+eta)-orb:body:position.
 
 }
+local function getOrbitRadiusAtVec {//returns as vector
+    //"To travel the stars, you must learn that you are not the center of the cosmos...
+    //to write a kos script, you must unlearn this lie."
+    parameter B.//cannot just use orbit because {italic} positionat needs an orbitablllle...
+    parameter vec.
+    //parameter overflow is 10.//wont use
+    local orb is B:orbit.
+    local tnot is orb:epoch.
+    local norm_o is vectorCrossProduct(positionAt(B,tnot)-positionAt(B:body,tnot),velocityAt(B,tnot):orbit):normalized.
+    local vecto is vectorExclude(norm_o,vec):normalized.//project arg 2 onto arg 1
+    local pvec is getPerapsisDirVec(B).
+    local tanAtvec is vang(vecto,pvec).
+    if determinent(pvec,vecto,norm_o)<0{
+        set tanAtvec to -tanAtvec.//has no effect
+    }
+    if 1-B:orbit:eccentricity*cos(tanAtVec) =0{return "none".}//infinite
+    diag("getOrbitRadiusAtVec:"+tanAtvec+","+B:orbit:semimajoraxis*(1.0-B:orbit:eccentricity^2)/(1-B:orbit:eccentricity*cos(tanAtVec))
+            +","+B:orbit:periapsis+B:body:radius+","+B:orbit:apoapsis+B:body:radius).
+
+    return B:orbit:semimajoraxis*(1.0-B:orbit:eccentricity^2)/(1+B:orbit:eccentricity*cos(tanAtVec)).//may be negative
+
+}
 local function getRadAtVec_nowork{
     parameter orb.
     parameter vec.
@@ -294,6 +443,32 @@ local function getDvEjectMoonPlunge{//reversible
     return sqrt(2*V_M^2+vfm^2)-V_M
         +V_P*(sqrt(2-(v_f/V_P)^2)-sqrt(2*V_P^2/(V_MP^2+V_P^2))).
         //=V_M*(U_mf-1)+v_P*(U_fp-U_ip) 
+}
+local function getIncomingResolutionCoefficient{
+    parameter A.//start
+    parameter B.//end
+    parameter dt.//period of possible ejection times
+    if not (A:body=B:body) {
+        print "bodies do not have same center".
+        return "none".
+    }
+    local S is A:body.//short for sun
+    //return Ang.//answers look reasonable
+    local t is time:seconds.
+    local rA0 is positionAt(A,t)-S:position().
+    local rB0 is positionAt(B,t)-S:position().
+    local Lb is vcrs(rB0,velocityAt(B,t):orbit).//if needed, use B as l ref
+    local A_retro is ((vcrs(rA0,velocityAt(A,t):orbit)*Lb)<0).
+    diag("A_retro: "+A_retro).
+    local omg_r is choose (360/B:orbit:period + 360/A:orbit:period) if A_retro else 
+            (360/B:orbit:period - 360/A:orbit:period).//=-d Ang/dt
+    diag("omega: "+omg_r).
+    if omg_r=0 {
+        print "can't transfer, Bodied have same period.".
+        return "none".
+    }
+    local dr is dt * omg_r * B:orbit:semimajoraxis.
+    return dr / B:soiradius.
 }
 local function getTransferTime {
     parameter A.//start
@@ -945,18 +1120,18 @@ local function m_exec {
     parameter rot_t is 5.//charactaristic rotation time
     local reboot is false.//unused
     set throttle_limiter to min(1,throttle_limiter).
-        //print out node's basic parameters - ETA and deltaV
-        print "Node in: " + round(nd:eta) + ", DeltaV: " + round(nd:deltav:mag).
+    //print out node's basic parameters - ETA and deltaV
+    print "Node in: " + round(nd:eta) + ", DeltaV: " + round(nd:deltav:mag).
 
-        //calculate ship's max acceleration
-        local max_acc to ship:maxthrust/ship:mass.
-        // Please note, this is not exactly correct... mass change
-        //
-        local burn_duration to nd:deltav:mag/max_acc.
-        print "Crude Estimated burn duration: " + round(burn_duration) + "s".
-        local np to nd:deltav. //points to node, don't care about the roll direction.
-        //np is a value copy because the local function node:deltav has "get only" access.
-        //all suffixes in kos have a property called "access" which determines whether they returne value or reference.
+    //calculate ship's max acceleration
+    local max_acc to ship:maxthrust/ship:mass.
+    // Please note, this is not exactly correct... mass change
+    //
+    local burn_duration to nd:deltav:mag/max_acc.
+    print "Crude Estimated burn duration: " + round(burn_duration) + "s".
+    local np to nd:deltav. //points to node, don't care about the roll direction.
+    //np is a value copy because the local function node:deltav has "get only" access.
+    //all suffixes in kos have a property called "access" which determines whether they returne value or reference.
     if warp=0{
         
         lock steering to np.//TODO steering wont turn with node
@@ -968,11 +1143,15 @@ local function m_exec {
 
         //the ship is facing the right direction, let's wait for our burn time
         local w is time:seconds+nd:eta-(burn_duration/2)-10.
+        //TODO Test
+        unlock steering.//newline to test
         warpto(w).
     }else set reboot to true.
-    wait until nd:eta <= (burn_duration/2)-9.
+    wait until nd:eta <= (burn_duration/2)+8.
     //set np to nd:deltav.//did nothing
+    set np to nd:deltav.//newline to test
     lock steering to np.//wake up, TODO doesnt work but is ok without it
+    diag("m_exec: steering relocked").
     wait until nd:eta <= (burn_duration/2).
     //we only need to lock throttle once to a certain variable in the beginning of the loop, and adjust only the variable itself inside it
     local tset to 0.
@@ -1897,7 +2076,7 @@ local function toPlanet {
         //can be: string (None), body (moon), scalar (inclination degrees)
     //print time:seconds+min(etaAscendingNode(B),etaDescendingNode(B)).
     parameter bootlex is readJson("1:/bootstrap.json").
-    //TODO decide if caller or function serializes args
+    //function serializes args
     local argsModif is true.
     if entercode<=-1{
         set entercode to 0.
@@ -1963,7 +2142,7 @@ local function toPlanet {
         add nd.
     }
     if JustGetTime {
-        return true.//forr use by humans
+        return true.//for use by humans
     }
     wait until warp=0.
     if time:seconds<tm {warpto(tm). wait until time:seconds>tm.}//depends on boot planet_test.
@@ -2016,7 +2195,14 @@ local function toPlanet {
     }else if allnodes:length=2{
         set nd to allNodes[0].
         set dnd to allNodes[1].
-    }else set dnd to nextnode.
+    }else if allnodes:length>=1{
+        set dnd to nextnode.
+    }else {
+        //entering from other manuvering function
+        set dnd to node(time:seconds+ship:orbit:period/2,0,0,0).
+        add dnd.
+    }
+    
     if entercode<=0 {
     //writeJson(lexicon("toPlanet",1),"1:/bootstrap.json").
     closest_approach_flat(B,dnd).
@@ -2031,6 +2217,12 @@ local function toPlanet {
     m_opt_pro(nd,opt,"min",1).
     m_exec(nd,0.01,0.5).
     diag("B:"+B).
+    //begin new code TODO test ===
+    //TODO may want to consider having this before closest_approach_flat
+    set entercode to 0.5.
+    set bootlex["toPlanet"] to entercode.
+    save().
+    //====end new
     }
     
 
@@ -2078,8 +2270,14 @@ local function toPlanet {
     //seem to be getting a C# error here
     //Object reference does not set to an instance of an object
     //At: 1079:    local norm_t is ..... B:body:orbit:position,...
-    //FIXED                              ^
-    if entercode<=0 {
+    //FIXED      
+    //NEW code TODO test =====
+    
+    if entercode<=0.5 {
+    
+    //end new, begin OLD
+    //if entercode<=0 { 
+    //end OLD
     //writeJson(lexicon("toPlanet",1),"1:/bootstrap.json").
     local normtime is time:seconds+min(etaAscendingNode(B),etaDescendingNode(B)).
     if normtime<(choose orbit:nextpatcheta if (orbit:transition="ENCOUNTER") else (time:seconds+dnd:eta)) {
@@ -2095,7 +2293,7 @@ local function toPlanet {
     if entercode=1 {
     //writeJson(lexicon("toPlanet",1),"1:/bootstrap.json").
         m_exec(nextNode).
-        if entercode<=0 {
+        if entercode<=0.5 {//NEW 0.0 -> 0.5
             set bootlex["toPlanet"] to 2.
             //writeJson(bootlex,"1:/bootstrap.json").
             save().
@@ -2136,6 +2334,213 @@ local function toPlanet {
     //now correct soon: ~14 m/s
 
 }
+local function toPlanetFromMoonDirect {
+    //will run toPlanet with a high enter code at some point
+    parameter B.
+    parameter ht is 80000.
+    parameter dht is 5000.
+    parameter JustGetTime is false.
+    parameter entercode is -1.//-1 will serialize args
+    parameter targetApoRad is (B:radius+ht).
+    parameter targetPlane is "None".
+        //can be: string (None), body (moon), scalar (inclination degrees)
+    //print time:seconds+min(etaAscendingNode(B),etaDescendingNode(B)).
+    parameter bootlex is readJson("1:/bootstrap.json").
+    //TODO, chech eccentricity and see if it is better to enter a parking orbit instead.
+    local argsModif is true.
+    if entercode<=-1{
+        set entercode to 0.
+
+        if argsModif {
+            if (B:body = ship:body:body) {
+                //ship is not orbiting a moon
+                print "function toPlanetFromMoonDirect used wrongly when orbiting a planet".
+                return.
+            }else if (B:body <> SUN) if((B:body:body = ship:body:body)){
+                //ship is not orbiting a moon
+                print "function toPlanetFromMoonDirect used wrongly when orbiting a planet".
+                return.
+            }
+            if (B:body <> ship:body:body:body) and 
+            (B:body:body = ship:body:body:body){
+                print "target is a moon.".
+                print "targeting orbital plane of: "+B.
+                set targetPlane to B.
+                set B to B:body.
+                set targetApoRad to max(B:radius+targetPlane:orbit:periapsis,targetApoRad).
+                set targetApoRad to min(B:radius+targetPlane:orbit:apoapsis,targetApoRad).
+                //set targetApoRad to B.//needs additional snippet at end
+            }
+        }
+        set bootlex["toPlanet_ht"] to ht.
+        set bootlex["toPlanet_B"] to B.
+        set bootlex["toPlanet_dht"] to dht.
+        set bootlex["toPlanet_targetApoRad"] to targetApoRad.
+        set bootlex["toPlanet"] to entercode.
+        set bootlex["toPlanet_targetPlane"] to targetPlane.
+        //writeJson(bootlex,"1:/bootstrap.json").
+        save().
+    }else{
+        set ht to bootlex["toPlanet_ht"].
+        set B to bootlex["toPlanet_B"].
+        set dht to bootlex["toPlanet_dht"].
+        //dont set retcode
+        set targetApoRad to bootlex["toPlanet_targetApoRad"].
+        set targetPlane to bootlex["toPlanet_targetPlane"].
+    }
+    //diag(targetPlane).
+    //diag(targetPlane:typename).
+    local planeFlag is 0.
+    if (targetPlane:typename="Body"){
+        set planeFlag to 1.
+        diag("targetPlane body").
+        if((targetPlane:body <> B) and (targetPlane <> B)){
+            print "body: "+targetPlane+" is not, or not a moon of: "+B.
+            return.
+        }
+    }
+    else if (targetPlane:typename <> "String"){
+        diag("targetPlane inclination").
+        set planeFlag to 2.
+    }
+    if entercode=0{
+        local A is ship:body:body.//the planet ejecting from
+        save().
+        if (not hasNode){
+            print "matching moon's orbital plane".
+            //m_matchInclination(ship:body).//skip for now
+        }
+        local eject_angle_resolution is ship:orbit:period / ship:body:orbit:period * 360.0.
+        local tm is getTransferTime(A,B) -ship:body:orbit:period.
+        local incoming_resolution_factor is 
+            getIncomingResolutionCoefficient(A,B,ship:orbit:period).
+        print "outgoing angle: +-"+eject_angle_resolution+" deg".
+        print "incoming approach / soiradius: +-"+incoming_resolution_factor.
+        if hasNode{
+            set nd to nextNode.
+            set tm to nextnode:eta+time:seconds.
+        }else {
+            set nd to node(tm,0,0,0).
+            add nd.
+        }
+        wait until warp=0.
+        local warttotime is tm.
+        //set warttotime to tm-ship:body:orbit:period/2.//definetly breaks things for mysterious reasons
+        //ignore, works fine without above line
+        if time:seconds<warttotime {warpto(warttotime). wait until time:seconds>warttotime.}//depends on boot planet_test.
+        diag("ready to eject from planet").
+        //tweak node
+        local S is A:body.
+        local M is ship:body.//mooon
+        local dvf is getBurnToPlanet(A,B,tm).
+        local psgn is dvf/abs(dvf).
+        local lmoon is vcrs(A:position-A:body:position,A:velocity:orbit).
+        diag("dvf: "+dvf).
+        diag ("shouldDive: "+shouldDive(dvf,M)).
+        local vfmoon is getApproxBurnToVelocityRet(dvf,ship:body,tm).
+        //eject velocity from moon
+        getApproxBurnToVelocity(vfmoon,nd).//from orbit around moon
+        lockEtaToParallelEjection(nd,1.0).
+        //TODO ecentricity corrections, but test first
+        local effectivePeriod is (ship:orbit:period*M:orbit:period)/(M:orbit:period-ship:orbit:period).//planetary period, analogous to sidereal day -> solar day
+        local effectivePeriodMoon is (M:orbit:period*A:orbit:period)/(A:orbit:period-M:orbit:period).//planetary period, analogous to sidereal day -> solar day
+        from {local i is 0.} until i>=10 step {set i to i+1.} do{//works now
+            breakpoint("angle opt").
+            if not nd:orbit:nextpatch:transition="ESCAPE" until nd:orbit:nextPatch:transition="ESCAPE"{//avoid moon encounters
+                diag("skiporbit.").
+                //should maintain a lock
+                set nd:eta to nd:eta+effectivePeriod. wait 0.
+                lockEtaToParallelEjection(nd,1.0).//no plunge
+            }
+            local Ang0 is vang(velocityAt(ship,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit,
+                psgn*velocityAt(A,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit).
+            if vcrs(velocityAt(ship,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit,
+                psgn*velocityAt(A,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit)*lmoon<0 {
+                    set Ang0 to -Ang0.
+            }
+            diag("Ang0: "+Ang0).
+            //local deta is choose ship:orbit:period*Ang0/360 if dvf>0 else ship:orbit:period*(Ang0-180)/360.
+            local deta is M:orbit:period*Ang0/360.
+            //keep orbit locked
+            set deta to round(deta/effectivePeriod)*effectivePeriod*(-psgn).
+            if deta=0 {break.}//or
+            set nd:eta to nd:eta+deta.
+            diag("eta: "+nd:eta).
+            if nd:eta<=0 {
+                //commmented lines could break it
+                //something always goes wrong when eta is in future
+                //works when this is gone and no alternate timewarp
+                //set nd:eta to nd:eta+ship:orbit:period.//TODO is wrong
+                
+                set deta to round(effectivePeriodMoon/effectivePeriod)*effectivePeriod.
+                set nd:eta to nd:eta+deta.
+                //works
+            }
+            wait 0.
+        }
+        //for hyperbolic orbits, meanAnomaly seems to behave analytically (como de sine to sinh);
+        //exit moon first, optimize later
+        //local nextOrbitPeriapsisTime is TimeOfNextPeriapsis(nd:orbit:nextPatch).//use for plunge next eta
+        //IMPORTANT: trueAnomaly is angle-based, meanAnomaly is time based (out of 360)
+        //sould optimize first
+        print "target vf:"+dvf.
+        print "achieved vf magnitude"+velocityAt(ship,nd:orbit:nextpatch:nextpatch:epoch-1):orbit:mag.
+        print "achieved vf component"+velocityAt(ship,nd:orbit:nextpatch:nextpatch:epoch-1):orbit
+            *velocityAt(A,nd:orbit:nextpatch:nextpatch:epoch-1):orbit:normalized.
+            //a small difference (both): seems to be off both ways depending on run, sometimes a lot.
+            //delta vv 
+        breakpoint("eject soon").
+        local optEject is {
+            //will neeed changes if plunging
+            if not nd:orbit:transition="ESCAPE"{
+                return M:soiradius-nd:orbit:apoapsis.
+            }
+            if not nd:orbit:nextpatch:hasNextPatch{
+                return M:soiradius-nd:orbit:apoapsis.
+            }if nd:orbit:nextPatch:transition="CAPTURE"{
+                //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:nextpatch:nextpatch:epoch-1):orbit
+            //*velocityAt(A,nd:orbit:nextpatch:nextpatch:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
+                return choose getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch))
+                -nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:periapsis-nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:body:radius
+                    if psgn<0 else
+                    getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch))
+                -nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:apoapsis-nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:body:radius.
+            }
+            return choose getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch))
+                -nd:orbit:nextPatch:nextPatch:periapsis-nd:orbit:nextPatch:nextPatch:body:radius
+                If psgn<0 else
+                getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch))
+                -nd:orbit:nextPatch:nextPatch:apoapsis-nd:orbit:nextPatch:nextPatch:body:radius.
+            //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:epoch-1):orbit
+            //*velocityAt(A,nd:orbit:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
+        }.
+        //m_opt_pro(nd,optEject,dvf).//a good start, but doesn't account for periapsis dir-vec.
+        m_opt_pro(nd,optEject,0,30).
+
+        //TODO add orbitHeightInDirVec using trueAnomaly / mean Anomaly, change optEject
+        m_exec(nd).
+        breakpoint("moon ejecting").
+        warpTo(time:seconds+eta:transition).
+        wait until ship:body=M:body.
+        wait 2.
+        warpTo(time:seconds+eta:transition).
+        wait until ship:body=A:body.
+        wait 1.
+        //new enter code
+        //set entercode to 1.//TODO tweak
+        //set bootlex["toPlanet"] to 1.
+        //save().
+        //TOOD invoke ToPlanet with enter code 0, but skip to m_matchInclination step,
+        // may need to add a new entercode of 1.5 to toPlanet
+        set entercode to 0.5.
+        set bootlex["toPlanet"] to entercode.
+        save().
+        
+    }
+    //entercode >=0.5
+    //call with same bootlex, behave as if same functionp
+    toPlanet(B,ht,dht,JustGetTime,entercode,targetApoRad,targetPlane,bootlex).
+}
 local function testpatch {
     local frame_out is "".
     local nframe is 100.
@@ -2171,4 +2576,5 @@ global manuver_trimOrbit is trim_orbit@.
 global manuver_matchInclination is m_matchInclination@.
 global manuver_getTransferTime is getTransferTime@.
 global manuver_toPlanet is toPlanet@.//UNFINISHED; temporary usage: places manuver node at next transfer window.
+global manuver_toPlanetFromMoonDirect is toPlanetFromMoonDirect@.
 

@@ -1,9 +1,10 @@
 
 //=================
 //edit here for implimentation
-local theprogram is "test_planetTo".
+local theprogram is "test_planetToFromMoon".
 //=================
 // may in the future be able to overwrite the boot script by runing stackboot from another script w args
+
 if warp>0{
     wait until warp=0.
     //bug, does not wait for warp to fully stop; using a code loop fails
@@ -19,7 +20,6 @@ if exists("1:/mastercompile.ks"){
 else {
     runOncePath ("0:/src/mastercompile.ks").
 }
-wait until warp=0.
 local bootstrapname is "1:/bootstrap.json".//there will always be a disk 1.
 
 global bootstack is lexicon().//GLOBAL======gives the stack (not an actual stack but a tree json)

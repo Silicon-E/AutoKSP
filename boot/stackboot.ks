@@ -4,7 +4,15 @@
 local theprogram is "test_stackboot".
 //=================
 // may in the future be able to overwrite the boot script by runing stackboot from another script w args
-cd("0:/src/").
+if warp>0{
+    wait until warp=0.
+    //bug, does not wait for warp to fully stop; using a code loop fails
+    //https://github.com/KSP-KOS/KOS/issues/1790
+    wait until ship:unpacked.//should work but still doesn't
+    wait 3.
+}
+wait until ship:unpacked.
+if(ship:connection:isconnected) {cd("0:/src/").}//not perfect, has problems
 if exists("1:/mastercompile.ks"){
     runOncePath ("1:/mastercompile.ks").
 }
