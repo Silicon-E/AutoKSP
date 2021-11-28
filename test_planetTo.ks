@@ -72,7 +72,7 @@ if entercode<=0 {
     //toPlanet does this locally
     set bootstack["toPlanet"] to lexicon("toPlanet",-1).
     save().
-    print "starting manuver_toPlanet".
+    print "starting manuver:toPlanet".
     print "ht= "+ht.
     print "inc=  "+inc.
 
@@ -86,6 +86,6 @@ if entercode<=0 {
 
 
 }
-manuver_toPlanet(target,ht,5000,false,ecode,(target:radius+ht)*3,inc,bootstack["toPlanet"]).
+manuver:toPlanet(target,ht,5000,false,ecode,(target:radius+ht)*3,inc,bootstack["toPlanet"]).
 //print H(3).//functions default to global but can be prefixed like vars
-//manuver_getTransferTime(mun,minmus).
+//manuver:getTransferTime(mun,minmus).

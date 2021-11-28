@@ -86,7 +86,8 @@ if entercode<=0 {
 
 
 }
-manuver_toPlanetFromMoonDirect(target,ht,5000,false,ecode,(target:radius+ht)*3,inc,bootstack["toPlanet"]).
+//manuver_toPlanetFromMoonDirect(target,ht,5000,false,ecode,(target:radius+ht)*3,inc,bootstack["toPlanet"]).//old way
+manuver:toPlanetFromMoonDirect(target,ht,5000,false,ecode,(target:radius+ht)*3,inc,bootstack["toPlanet"]).
 //print H(3).//functions default to global but can be prefixed like vars
 //manuver_getTransferTime(mun,minmus).
 

@@ -1,7 +1,11 @@
 parameter debug is true.
+//ctrl-K-0 to fold all, ctrl_K-J to unfold all (fold is colapse)
 local dquote is char(34).
+global manuver is lexicon().//pseudo singlton-class
+
 //the lowest safe orbital height with a buffer zone; lowest that lib_manuver will plan to go
-global manuver_LowestSafeOrbitWithBuffer is lexicon(//https://forum.kerbalspaceprogram.com/index.php?/topic/31128-lowest-orbit/
+//old name: manuver_LowestSafeOrbitWithBuffer
+set manuver:LowestSafeOrbitWithBuffer to lexicon(//https://forum.kerbalspaceprogram.com/index.php?/topic/31128-lowest-orbit/
     kerbin:name,80_000,
     mun:name,10_000,//terain feature at 3,335
     minmus:name,7_000,//terain at 5,725
@@ -19,7 +23,11 @@ global manuver_LowestSafeOrbitWithBuffer is lexicon(//https://forum.kerbalspacep
     bop:name,24_000,//terrain 21,749
     pol:name,7_000//terrain 5,585
     ).//underscores can be freely added to scalars
-//ctrl-K-0 to fold all, ctrl_K-J to unfold all (fold is colapse)
+local function getLowestSafeOrbit{
+    parameter B.
+    //old: return manuver_LowestSafeOrbitWithBuffer[B:name].
+    return manuver:LowestSafeOrbitWithBuffer[B:name].
+}
 //maybe todo find compile directive to turn of parenticeless local function calls.
 //math util
 //v=v_c*U
@@ -58,6 +66,20 @@ local function get_v_e {
     parameter B.
     parameter Rad.
     return get_v_c(B,Rad)*sqrt(2).
+}
+local function get_v_c_const{
+    parameter B.
+    return get_v_c(B,B:orbit:semimajoraxis).
+}
+local function orbradiusAt {
+    parameter B.
+    parameter tm.
+    return (positionAt(B,tm)-positionAt(B:body,tm)):mag.
+}
+local function get_v_c_at{
+    parameter B.
+    parameter tm.
+    return get_v_c(B,(positionAt(B,tm)-positionAt(B:body,tm)):mag).
 }
 local function U{
     parameter H_.
@@ -275,12 +297,47 @@ local function getApproxBurnToVelocity {
     set nd:prograde to 0.
     set nd:normal to 0.
     set nd:radialout to 0.
-    local rc0 is (positionat(ship, t) -ship:orbit:BODY:POSITION):mag.
+    //https://github.com/KSP-KOS/KOS/issues/1304
+    //positionat(ship) is in moon frame
+    //positionat(moon) is in planet frame
+    local rc0 is (positionat(ship, t) -ship:orbit:BODY:POSITION //wrong:: positionat(ship:body, t)
+        ):mag.
     local vc0 is sqrt(ship:body:mu/rc0).
     local U0 is velocityAt(ship,t):orbit:mag/vc0.
     Local HSOI is ship:body:soiradius/rc0.
     diag("vc0,HSOI,U0"+vc0+" , "+HSOI+" , "+U0).
     set nd:prograde to vc0*(Ui(Vf,Vc0,HSOI)-U0).//works well now
+    //wait 1.
+
+}
+local function getApproxBurnsToVelocityDive {
+    parameter Vf.
+    parameter nd1 is nextnode.//edits
+    parameter nd2 is "none".//edits
+    if nd2="none" {getApproxBurnToVelocity(Vf,nd1). return. }
+    local t is time:seconds+nd1:eta.
+    set nd1:prograde to 0.
+    set nd1:normal to 0.
+    set nd1:radialout to 0.
+    local rc1 is (positionat(ship, t) -ship:orbit:BODY:POSITION):mag.//YES, this is correct due to frame choice
+    local Vc1 is sqrt(ship:body:mu/rc1).
+    local rc2 is (positionat(ship:body, t) -ship:orbit:BODY:BODY:POSITION):mag.
+    local Vc2 is sqrt(ship:body:body:mu/rc2).
+    local rcd is getLowestSafeOrbit(ship:body:body)+ship:body:body:radius.
+    local vcd is sqrt(ship:body:body:mu/rcd).
+    local U10 is velocityAt(ship,t):orbit:mag/Vc1.
+    local U20 is velocityAt(ship:body,t):orbit:mag/Vc2.
+    local vf1 is vc2*(U20-U(rcd/rc2)).
+    local U21 is U(rc2/rcd).
+
+    Local HSOI1 is ship:body:soiradius/rc1.
+    Local HSOI2 is ship:body:body:soiradius/rcd.
+    diag("Vc1,HSOI1,U10 :"+Vc1+" , "+HSOI1+" , "+U10+","+getLowestSafeOrbit(ship:body:body)).
+    set nd1:prograde to Vc1*(Ui(Vf1,Vc1,HSOI1)-U10).
+    //wait 0.
+    //local tp is TimeOfNextPeriapsis(nd1:orbit:nextpatch).//this is done later
+    //set nd2:eta to tp-time:seconds.//...periapsis
+    set nd2:prograde to vcd*(Ui(Vf,vcd,HSOI2)-U21).
     //wait 1.
 
 }
@@ -302,6 +359,7 @@ local function getApproxBurnToVelocityRet {
 local function shouldDive{
     parameter v_f.//=v_f/v_moon
     parameter moon.
+    //Time independant, can be checked before entering a function
     //parameter t is time:seconds+nextnode:eta.//unused
     //seems to be (approximately) correct now
     local rc1 is ship:orbit:semimajoraxis.//(positionat(ship, t) -positionat(moon, t)):mag.
@@ -311,7 +369,7 @@ local function shouldDive{
     local U_f is v_f/vc2.
     local HSOI_planet is moon:body:soiradius/rc2.//take into account finite SOI
     local HSOI_moon is moon:soiradius/rc1.//take into account finite SOI
-    local Hmin is (moon:body:radius+manuver_LowestSafeOrbitWithBuffer[moon:body:name])/rc2.//lowest safe orbit H, is always the optimal one
+    local Hmin is (moon:body:radius+getLowestSafeOrbit(moon:body))/rc2.//lowest safe orbit H, is always the optimal one
     //TODO fine tune (dnw for bop, tylo, etc)
     local M is get_v_c(moon:body,moon:orbit:semimajoraxis)/get_v_c(moon,ship:orbit:semimajoraxis).//=v_moon / v_ship
     //direct: sym.sqrt(2+M**2*(sym.sqrt(2+Uf**2)-1)**2)-1
@@ -404,8 +462,8 @@ local function getOrbitRadiusAtVec {//returns as vector
         set tanAtvec to -tanAtvec.//has no effect
     }
     if 1-B:orbit:eccentricity*cos(tanAtVec) =0{return "none".}//infinite
-    diag("getOrbitRadiusAtVec:"+tanAtvec+","+B:orbit:semimajoraxis*(1.0-B:orbit:eccentricity^2)/(1-B:orbit:eccentricity*cos(tanAtVec))
-            +","+B:orbit:periapsis+B:body:radius+","+B:orbit:apoapsis+B:body:radius).
+    //diag("getOrbitRadiusAtVec:"+tanAtvec+","+B:orbit:semimajoraxis*(1.0-B:orbit:eccentricity^2)/(1-B:orbit:eccentricity*cos(tanAtVec))
+    //        +","+B:orbit:periapsis+B:body:radius+","+B:orbit:apoapsis+B:body:radius).
 
     return B:orbit:semimajoraxis*(1.0-B:orbit:eccentricity^2)/(1+B:orbit:eccentricity*cos(tanAtVec)).//may be negative
 
@@ -2431,29 +2489,69 @@ local function toPlanetFromMoonDirect {
         diag("ready to eject from planet").
         //tweak node
         local S is A:body.
-        local M is ship:body.//mooon
+        local M is ship:body.//moon
         local dvf is getBurnToPlanet(A,B,tm).
         local psgn is dvf/abs(dvf).
         local lmoon is vcrs(A:position-A:body:position,A:velocity:orbit).
         diag("dvf: "+dvf).
-        diag ("shouldDive: "+shouldDive(dvf,M)).
-        local vfmoon is getApproxBurnToVelocityRet(dvf,ship:body,tm).
-        //eject velocity from moon
-        getApproxBurnToVelocity(vfmoon,nd).//from orbit around moon
-        lockEtaToParallelEjection(nd,1.0).
+        local willDive is shouldDive(dvf,M).
+        diag ("shouldDive: "+willDive).
+        local divesign is choose -1.0 if willDive else 1.0.
+        local  divenode is "none".
+        set  divenode to choose node(time:seconds+M:orbit:period/5,0,0,0) if willDive else "none".
+        if not willDive {
+            local vfmoon is getApproxBurnToVelocityRet(dvf,ship:body,tm).
+            //eject velocity from moon
+            getApproxBurnToVelocity(vfmoon,nd).//from orbit around moon
+            lockEtaToParallelEjection(nd,divesign).
+        }else {
+            getApproxBurnsToVelocityDive(dvf,nd,divenode).
+            lockEtaToParallelEjection(nd,divesign).
+            if allNodes:length <2 {add divenode.}
+            else {set divenode to allNodes[1]. }
+            if divenode:orbit:body = M {set divenode:eta to divenode:eta+M:orbit:period/5. }
+            local tp is TimeOfNextPeriapsis(nd:orbit:nextpatch).
+            set divenode:eta to tp-time:seconds.
+
+            //TODO pre-optimize periapsis as it is quite a bit off usually. resulting angle changes a lot
+        }
+        
         //TODO ecentricity corrections, but test first
         local effectivePeriod is (ship:orbit:period*M:orbit:period)/(M:orbit:period-ship:orbit:period).//planetary period, analogous to sidereal day -> solar day
         local effectivePeriodMoon is (M:orbit:period*A:orbit:period)/(A:orbit:period-M:orbit:period).//planetary period, analogous to sidereal day -> solar day
+        local optDive is {
+                //will neeed changes if plunging
+                if not nd:orbit:transition="ESCAPE"{
+                    return M:soiradius-nd:orbit:apoapsis.
+                }
+                if not nd:orbit:nextpatch:hasNextPatch{
+                    return M:soiradius-nd:orbit:apoapsis.
+                }if nd:orbit:nextPatch:transition="CAPTURE"{
+                    //just ignore and hope.
+                }
+                return nd:orbit:nextpatch:periapsis.
+                //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:epoch-1):orbit
+                //*velocityAt(A,nd:orbit:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
+            }.
+        if willdive {m_opt_pro(nd,optDive,getLowestSafeOrbit(A),2,0.001,10). }
         from {local i is 0.} until i>=10 step {set i to i+1.} do{//works now
             breakpoint("angle opt").
-            if not nd:orbit:nextpatch:transition="ESCAPE" until nd:orbit:nextPatch:transition="ESCAPE"{//avoid moon encounters
+            if nd:orbit:nextpatch:transition="CAPTURE" until not nd:orbit:nextPatch:transition="CAPTURE"{//avoid moon encounters
                 diag("skiporbit.").
                 //should maintain a lock
                 set nd:eta to nd:eta+effectivePeriod. wait 0.
-                lockEtaToParallelEjection(nd,1.0).//no plunge
+                lockEtaToParallelEjection(nd,divesign).
+                if willDive {
+                    m_opt_pro(nd,optDive,getLowestSafeOrbit(A),2,0.001,10). 
+                    if divenode:orbit:body = M {set divenode:eta to divenode:eta+M:orbit:period/5. }
+                    local tp is TimeOfNextPeriapsis(nd:orbit:nextpatch). set divenode:eta to tp-time:seconds. }
             }
-            local Ang0 is vang(velocityAt(ship,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit,
+            local Ang0 is choose vang(velocityAt(ship,time:seconds+divenode:orbit:nextpatcheta-0.1):orbit,
+                psgn*velocityAt(A,time:seconds+divenode:orbit:nextpatcheta-0.1):orbit)
+                if willDive else
+                vang(velocityAt(ship,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit,
                 psgn*velocityAt(A,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit).
+            
             if vcrs(velocityAt(ship,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit,
                 psgn*velocityAt(A,time:seconds+nd:orbit:nextpatch:nextpatcheta-0.1):orbit)*lmoon<0 {
                     set Ang0 to -Ang0.
@@ -2465,6 +2563,10 @@ local function toPlanetFromMoonDirect {
             set deta to round(deta/effectivePeriod)*effectivePeriod*(-psgn).
             if deta=0 {break.}//or
             set nd:eta to nd:eta+deta.
+            if willDive { 
+                m_opt_pro(nd,optDive,getLowestSafeOrbit(A),2,0.001,10). 
+                if divenode:orbit:body = M {set divenode:eta to divenode:eta+M:orbit:period/5. }
+                local tp is TimeOfNextPeriapsis(nd:orbit:nextpatch). set divenode:eta to tp-time:seconds. }
             diag("eta: "+nd:eta).
             if nd:eta<=0 {
                 //commmented lines could break it
@@ -2474,6 +2576,10 @@ local function toPlanetFromMoonDirect {
                 
                 set deta to round(effectivePeriodMoon/effectivePeriod)*effectivePeriod.
                 set nd:eta to nd:eta+deta.
+                if willDive {
+                    m_opt_pro(nd,optDive,getLowestSafeOrbit(A),2,0.001,10). 
+                    if divenode:orbit:body = M {set divenode:eta to divenode:eta+M:orbit:period/5. }
+                    local tp is TimeOfNextPeriapsis(nd:orbit:nextpatch). set divenode:eta to tp-time:seconds. }
                 //works
             }
             wait 0.
@@ -2490,32 +2596,37 @@ local function toPlanetFromMoonDirect {
             //a small difference (both): seems to be off both ways depending on run, sometimes a lot.
             //delta vv 
         breakpoint("eject soon").
-        local optEject is {
-            //will neeed changes if plunging
-            if not nd:orbit:transition="ESCAPE"{
-                return M:soiradius-nd:orbit:apoapsis.
-            }
-            if not nd:orbit:nextpatch:hasNextPatch{
-                return M:soiradius-nd:orbit:apoapsis.
-            }if nd:orbit:nextPatch:transition="CAPTURE"{
-                //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:nextpatch:nextpatch:epoch-1):orbit
-            //*velocityAt(A,nd:orbit:nextpatch:nextpatch:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
-                return choose getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch))
-                -nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:periapsis-nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:body:radius
-                    if psgn<0 else
-                    getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch))
-                -nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:apoapsis-nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:body:radius.
-            }
-            return choose getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch))
-                -nd:orbit:nextPatch:nextPatch:periapsis-nd:orbit:nextPatch:nextPatch:body:radius
-                If psgn<0 else
-                getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch))
-                -nd:orbit:nextPatch:nextPatch:apoapsis-nd:orbit:nextPatch:nextPatch:body:radius.
-            //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:epoch-1):orbit
-            //*velocityAt(A,nd:orbit:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
-        }.
-        //m_opt_pro(nd,optEject,dvf).//a good start, but doesn't account for periapsis dir-vec.
-        m_opt_pro(nd,optEject,0,30).
+        if not willDive {
+            local optEject is {
+                if not nd:orbit:transition="ESCAPE"{
+                    return M:soiradius-nd:orbit:apoapsis.
+                }
+                if not nd:orbit:nextpatch:hasNextPatch{
+                    return M:soiradius-nd:orbit:apoapsis.
+                }if nd:orbit:nextPatch:transition="CAPTURE"{
+                    //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:nextpatch:nextpatch:epoch-1):orbit
+                //*velocityAt(A,nd:orbit:nextpatch:nextpatch:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
+                    return choose getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch))
+                    -nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:periapsis-nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:body:radius
+                        if psgn<0 else
+                        getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch))
+                    -nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:apoapsis-nd:orbit:nextPatch:nextPatch:nextPatch:nextPatch:body:radius.
+                }
+                return choose getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch))
+                    -nd:orbit:nextPatch:nextPatch:periapsis-nd:orbit:nextPatch:nextPatch:body:radius
+                    If psgn<0 else
+                    getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,nd:orbit:nextPatch:nextPatch))
+                    -nd:orbit:nextPatch:nextPatch:apoapsis-nd:orbit:nextPatch:nextPatch:body:radius.
+                //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:epoch-1):orbit
+                //*velocityAt(A,nd:orbit:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
+            }.
+            //m_opt_pro(nd,optEject,dvf).//a good start, but doesn't account for periapsis dir-vec.
+            m_opt_pro(nd,optEject,0,30).
+        } else {
+            
+            m_opt_pro(nd,optDive,getLowestSafeOrbit(A),5).
+        }
+        
 
         //TODO add orbitHeightInDirVec using trueAnomaly / mean Anomaly, change optEject
         m_exec(nd).
@@ -2523,6 +2634,39 @@ local function toPlanetFromMoonDirect {
         warpTo(time:seconds+eta:transition).
         wait until ship:body=M:body.
         wait 2.
+        if willDive {
+            //TODO seemed to not happen at all
+            print "correcting divenode".
+            set divenode:eta to eta:periapsis.
+            local optEjectDive is {
+                if divenode:orbit:transition="CAPTURE"{
+                    //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:nextpatch:nextpatch:epoch-1):orbit
+                //*velocityAt(A,nd:orbit:nextpatch:nextpatch:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
+                    return choose getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,divenode:orbit:nextPatch:nextPatch:nextPatch))
+                    -divenode:orbit:nextPatch:nextPatch:nextPatch:periapsis-divenode:orbit:nextPatch:nextPatch:nextPatch:body:radius
+                        if psgn<0 else
+                        getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,divenode:orbit:nextPatch:nextPatch:nextPatch))
+                    -divenode:orbit:nextPatch:nextPatch:nextPatch:apoapsis-divenode:orbit:nextPatch:nextPatch:nextPatch:body:radius.
+                }
+                if not divenode:orbit:transition="ESCAPE"{
+                    return A:soiradius-divenode:orbit:apoapsis.
+                }
+                if not divenode:orbit:hasNextPatch{
+                    return A:soiradius-divenode:orbit:apoapsis.
+                }
+                return choose getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,divenode:orbit:nextPatch))
+                    -divenode:orbit:nextPatch:periapsis-divenode:orbit:nextPatch:body:radius
+                    If psgn<0 else
+                    getOrbitRadiusAtVec(B,-psgn*getPerapsisDirVecOfLaterPatch(ship,divenode:orbit:nextPatch))
+                    -divenode:orbit:nextPatch:apoapsis-divenode:orbit:nextPatch:body:radius.
+                //return velocityAt(ship,nd:orbit:nextpatch:nextpatch:epoch-1):orbit
+                //*velocityAt(A,nd:orbit:nextpatch:nextpatch:epoch-1):orbit:normalized.//component
+            }.
+            //m_opt_pro(nd,optEject,dvf).//a good start, but doesn't account for periapsis dir-vec.
+            m_opt_pro(divenode,optEjectDive,0,30).
+            m_exec(divenode).
+        }
+
         warpTo(time:seconds+eta:transition).
         wait until ship:body=A:body.
         wait 1.
@@ -2563,18 +2707,46 @@ local function testpatch {
     print frame_out.
 }
 if debug{
-    clearScreen.
+    //clearScreen.
     //print "Listmax:="+m_util_max(list(1,2,3,4,5)).
     
     //ship is a Vessel, mun is a Body. TODO add support for docking manuvers
 }
 //even though we dont have to do this, it is a good idea because we can rename then to avoid nameing conflicts
 //all of these shoud have a prefix manuver_ (could later change to m_ but m_exec already uses it. maybe mnv_)
-global manuver_toInSOI is manuverTo@.//now supports docking
-global manuver_plungeFromSOI is plungeTo@.
-global manuver_trimOrbit is trim_orbit@.
-global manuver_matchInclination is m_matchInclination@.
-global manuver_getTransferTime is getTransferTime@.
-global manuver_toPlanet is toPlanet@.//UNFINISHED; temporary usage: places manuver node at next transfer window.
-global manuver_toPlanetFromMoonDirect is toPlanetFromMoonDirect@.
+//below will soon be depricated
+local function depricate{
+    parameter old.
+    parameter new.
+    parameter dummy1 is 0.
+    parameter dummy2 is 0.
+    parameter dummy3 is 0.
+    parameter dummy4 is 0.
+    parameter dummy5 is 0.
+    parameter dummy6 is 0.
+    parameter dummy7 is 0.
+    parameter dummy8 is 0.
+    parameter dummy9 is 0.
+    parameter dummy10 is 0.
+    parameter dummy11 is 0.
+    print "===function "+old+" is no longer valid, use "+new+" instead===".
+    print 1/0.//force crash    
+}
+global manuver_toInSOI is depricate@:bind("manuver_toInSOI","manuver:toInSOI").
+global manuver_plungeFromSOI is depricate@:bind("manuver_plungeFromSOI","manuver:plungeFromSOI").
+global manuver_trimOrbit is depricate@:bind("manuver_trimOrbit","manuver:trimOrbit").
+global manuver_matchInclination is depricate@:bind("manuver_matchInclination","manuver:matchInclination").
+global manuver_getTransferTime is depricate@:bind("manuver_getTransferTime","manuver:getTransferTime").
+global manuver_toPlanet is depricate@:bind("manuver_toPlanet","manuver:toPlanet").
+global manuver_toPlanetFromMoonDirect is depricate@:bind("manuver_toPlanetFromMoonDirect","manuver:toPlanetFromMoonDirect").
+
+//already declared manuver and set manuver:LowestSafeOrbitWithBuffer;
+set manuver:toInSOI to manuverTo@.//now supports docking
+set manuver:plungeFromSOI to plungeTo@.
+set manuver:trimOrbit to trim_orbit@.
+set manuver:matchInclination to m_matchInclination@.
+set manuver:getTransferTime to getTransferTime@.
+set manuver:toPlanet to toPlanet@.//UNFINISHED; temporary usage: places manuver node at next transfer window.
+set manuver:toPlanetFromMoonDirect to toPlanetFromMoonDirect@.
+set manuver:executeManuerNode to m_exec@.
 
