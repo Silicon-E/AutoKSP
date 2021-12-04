@@ -112,6 +112,25 @@ local function Uf{//warning, imag output possible
     parameter Ui.
     return sqrt(Ui^2-2).
 }
+local function anomalyConvert{
+    //TODO BROKEN
+    //off by 30deg for some angles sub munar
+    //of by 50deg for super minmusar
+    parameter ang1.
+    parameter e.//ecentricity
+    parameter sgn. //+1: true -> mean (geometry -> time)
+    if e=0 return ang1. //same for circle
+    //wikipedia has an approximation in case assumption is not true
+    //assums that mean anomaly is the same as angle from Virtual focus; this seems to be WRONG
+    ///sympy failed to confirm or deny; but is true for apo / peri
+    local r is (1-e^2)/(1+sgn*e*cos(ang1)).
+    //other r is (1-e^2)/(1-sgn*e*cos(angr))
+    local thecos is -sgn*(-1-e^2+r)/(2-r)/e.
+    local angr is arccos(thecos). 
+    if sin(ang1)<0 set angr to -angr.
+    set angr to angr + 360*round((ang1-angr)/360).
+    return angr.
+}
 local function TimeOfNextPeriapsis{
     parameter orb.
     //True anomaly is the geometric angle from Periapsis
@@ -1192,7 +1211,7 @@ local function m_exec {
     //all suffixes in kos have a property called "access" which determines whether they returne value or reference.
     if warp=0{
         
-        lock steering to np.//TODO steering wont turn with node
+        lock steering to np.
 
         //now we need to wait until the burn vector and ship's facing are aligned
         wait 5.
@@ -1201,14 +1220,12 @@ local function m_exec {
 
         //the ship is facing the right direction, let's wait for our burn time
         local w is time:seconds+nd:eta-(burn_duration/2)-10.
-        //TODO Test
-        unlock steering.//newline to test
+        unlock steering.
         warpto(w).
     }else set reboot to true.
     wait until nd:eta <= (burn_duration/2)+8.
-    //set np to nd:deltav.//did nothing
-    set np to nd:deltav.//newline to test
-    lock steering to np.//wake up, TODO doesnt work but is ok without it
+    set np to nd:deltav.
+    lock steering to np.//wake up
     diag("m_exec: steering relocked").
     wait until nd:eta <= (burn_duration/2).
     //we only need to lock throttle once to a certain variable in the beginning of the loop, and adjust only the variable itself inside it
@@ -1415,9 +1432,10 @@ local function m_matchInclination{
     local eta_d is etaDescendingNode(B).
     local ttime_d is time:seconds.
     local ttime_ is 0.
-    local LB is vcrs(B:position-B:body:position,B:velocity:orbit).
-    local LS is vcrs(ship:position-ship:body:position,ship:velocity:orbit).
+    local LB is vcrs(B:position-B:body:position,B:orbit:velocity:orbit).
+    local LS is vcrs(ship:position-ship:body:position,ship:orbit:velocity:orbit).
     diag ("angle: "+angle).
+    //breakpoint("match incline."). //fixed
     local eta_ is 0.
     local a_d is 0.//not set yet
     //pick node
@@ -1459,6 +1477,8 @@ local function m_matchInclination{
     local vf is vectorExclude(LB,vat):normalized*vat:mag.
     local rout is vcrs(vat,LS):normalized.
     diag("vflat: "+vflat).
+    diag("LB:"+LB). //works for inSoi object
+    diag("relVang:"+vang(vf,vat)).
     //local nd is node(ttime_+eta_,0,-a_d*vflat*sin(angle),vflat*(cos(angle)-1)*cos(asym)).
     local nd is node(ttime_+eta_,(vf-vat)*rout,-(vf-vat)*LS:normalized,(vf-vat)*vat:normalized).
     //left handed coords, normal is neg. L
@@ -1502,10 +1522,10 @@ local function trim_orbit {
     m_exec().m_exec().
 
 }
-local PHICRIT is 0.6.
+set manuver:PHICRIT to 0.6.
 //to make delagate to anonamous
 //global manuverTo is {...}
-global correction_time is 0.1.
+set manuver:correction_time to 0.1.
 local function dockApproach {
     parameter B.//is not a body
     parameter t.//encounter time
@@ -1561,7 +1581,7 @@ local function dockApproach {
         set max_acc to ship:maxthrust/ship:mass.
         set tset to min(vt:mag/max_acc, 1).
         local stop to (choose 1 if ts*vt:mag>(rt:mag-D-rc:mag) else 0).
-        if rt:mag>D and ((rt:mag/vt:mag>ship:orbit:period*PHICRIT/20)or vt:mag<1){
+        if rt:mag>D and ((rt:mag/vt:mag>ship:orbit:period*manuver:PHICRIT/20)or vt:mag<1){
             local crs is vectorExclude(rt,vt):mag/max(vt:mag,0.1).
             lock steering to -rt:normalized-rc:normalized*min(0.5,crs).
             lock throttle to tset.
@@ -1621,7 +1641,7 @@ local function manuverTo{
     local dv is v_ci*(U(Hgt)-1).
     local burn_dur_est to dv/(ship:maxthrust/ship:mass).
     local PHI is ship:velocity:orbit:mag*burn_dur_est/ship:orbit:semimajoraxis.
-    local nburns is max(floor(PHI/PHICRIT,0),1).
+    local nburns is max(floor(PHI/manuver:PHICRIT,0),1).
     print ("making exit burn in "+nburns+" sub burns.").
     local nds is list().//<node>; turns out kos does not use templates
     from {local i is 0. local et is burn_dur_est.} until (i>=nburns) step {set i to i+1.} do {
@@ -1769,7 +1789,7 @@ local function manuverTo{
         //set dv to 0.0001.
     
     unset tempnode.
-    local tempnode is node(time:seconds+ship:orbit:period*correction_time,0,0,0).
+    local tempnode is node(time:seconds+ship:orbit:period*manuver:correction_time,0,0,0).
     add tempnode.
     local orbitmax is 10.
     print "docking used to diverge here".//it works up to this point
@@ -1784,7 +1804,7 @@ local function manuverTo{
     if B_isBody {set etanextpatch to ship:orbit:nextpatcheta.}//this is the correct form
     if etanextpatch>ship:orbit:period
     {
-        warpto(time:seconds+(etanextpatch-ship:orbit:period*(0.5+correction_time))).
+        warpto(time:seconds+(etanextpatch-ship:orbit:period*(0.5+manuver:correction_time))).
         wait until warp=0.
     }
     remove tempnode.
@@ -1801,8 +1821,8 @@ local function manuverTo{
     }
     local timeto is 0.
     if (choose (abs(nextpatch:periapsis-ht)>d_ht) if B_isBody else (approach>d_ht)){
-        local timetomnv is choose correction_time if B_isBody else 0.2.
-        local cnd is node(time:seconds+max(ship:orbit:period*correction_time,etanextpatch*(2*timetomnv)),0,0,0).
+        local timetomnv is choose manuver:correction_time if B_isBody else 0.2.
+        local cnd is node(time:seconds+max(ship:orbit:period*manuver:correction_time,etanextpatch*(2*timetomnv)),0,0,0).
         add cnd.
         local tempnode is Node(time:seconds+eta:apoapsis,0,0,0).
         add tempnode.
@@ -1904,7 +1924,7 @@ local function manuverToApsi{
     unset tempnode.
     local burn_dur_est to dv/(ship:maxthrust/ship:mass).
     local PHI is ship:velocity:orbit:mag*burn_dur_est/ship:orbit:semimajoraxis.
-    local nburns is max(floor(PHI/PHICRIT,0),1).
+    local nburns is max(floor(PHI/manuver:PHICRIT,0),1).
     print ("making tangent burn in "+nburns+" sub burns.").
     local nds is list().//<node>; turns out kos does not use templates
     from {local i is 0. local et is eta:periapsis.} until (i>=nburns) step {set i to i+1.} do {
@@ -1975,7 +1995,7 @@ local function manuverToApsi{
         //set dv to 0.0001.
     }
     //unset tempnode.
-    local tempnode is node(time:seconds+ship:orbit:period*correction_time,0,0,0).
+    local tempnode is node(time:seconds+ship:orbit:period*manuver:correction_time,0,0,0).
     add tempnode.
     local orbitmax is 10.
     print "docking used to diverge here".//it works up to this point
@@ -1991,7 +2011,7 @@ local function manuverToApsi{
     //but bug: nextpatch may not exist
     if etanextpatch>ship:orbit:period
     {
-        warpto(time:seconds+(etanextpatch-ship:orbit:period*(0.5+correction_time))).
+        warpto(time:seconds+(etanextpatch-ship:orbit:period*(0.5+manuver:correction_time))).
         wait until warp=0.
     }
     remove tempnode.
@@ -2007,9 +2027,11 @@ local function manuverToApsi{
         wait until time:seconds>t+1.
     }
     local timeto is 0.
+    //TODO fix approach
+    //local approach is "infinity".///========NEW
     if (choose (abs(nextpatch:periapsis-ht)>d_ht) if B_isBody else (approach>d_ht)){
-        local timetomnv is choose correction_time if B_isBody else 0.2.
-        local cnd is node(time:seconds+max(ship:orbit:period*correction_time,etanextpatch*(2*timetomnv)),0,0,0).
+        local timetomnv is choose manuver:correction_time if B_isBody else 0.2.
+        local cnd is node(time:seconds+max(ship:orbit:period*manuver:correction_time,etanextpatch*(2*timetomnv)),0,0,0).
         add cnd.
         local tempnode is Node(time:seconds+eta:apoapsis,0,0,0).
         add tempnode.
@@ -2157,6 +2179,9 @@ local function toPlanet {
         set bootlex["toPlanet"] to entercode.
         set bootlex["toPlanet_targetPlane"] to targetPlane.
         //writeJson(bootlex,"1:/bootstrap.json").
+        //TODO NEW
+        set entercode to -0.5.
+        set bootlex["toPlanet"] to entercode.
         save().
     }else{
         set ht to bootlex["toPlanet_ht"].
@@ -2180,6 +2205,21 @@ local function toPlanet {
     else if (targetPlane:typename <> "String"){
         diag("targetPlane inclination").
         set planeFlag to 2.
+    }
+    if entercode<=-0.5{
+        //correct inclination
+        local inc_critical is 0.5.
+        //  check if inclination is off by more than this angle, but may be retrograde
+        local relinc is abs(rel_inclination(ship:body)).
+        if abs(180-relinc)<relinc {set relinc to abs(180-relinc).}
+        print "inclination is off by: "+relinc.
+        if (abs(rel_inclination(ship:body))>0.5){
+            print "   (off enough to correct)".
+            m_matchInclination(ship:body).
+        }else {print "   (negligable)".}
+        set entercode to 0.
+        set bootlex["toPlanet"] to entercode.
+        save().
     }
     if entercode<=0{
     
@@ -2392,7 +2432,7 @@ local function toPlanet {
     //now correct soon: ~14 m/s
 
 }
-local function toPlanetFromMoonDirect {
+local function toPlanetFromMoon {
     //will run toPlanet with a high enter code at some point
     parameter B.
     parameter ht is 80000.
@@ -2437,6 +2477,9 @@ local function toPlanetFromMoonDirect {
         set bootlex["toPlanet"] to entercode.
         set bootlex["toPlanet_targetPlane"] to targetPlane.
         //writeJson(bootlex,"1:/bootstrap.json").
+        set entercode to -0.5.
+        set bootlex["toPlanet"] to entercode.
+        
         save().
     }else{
         set ht to bootlex["toPlanet_ht"].
@@ -2460,6 +2503,21 @@ local function toPlanetFromMoonDirect {
     else if (targetPlane:typename <> "String"){
         diag("targetPlane inclination").
         set planeFlag to 2.
+    }
+    if entercode<=-0.5{
+        //correct inclination
+        local inc_critical is 0.5.
+        //  check if inclination is off by more than this angle, but may be retrograde
+        local relinc is abs(rel_inclination(ship:body)).
+        if abs(180-relinc)<relinc {set relinc to abs(180-relinc).}
+        print "inclination is off by: "+relinc.
+        if (abs(rel_inclination(ship:body))>0.5){
+            print "   (off enough to correct)".
+            m_matchInclination(ship:body).
+        }else {print "   (negligable)".}
+        set entercode to 0.
+        set bootlex["toPlanet"] to entercode.
+        save().
     }
     if entercode=0{
         local A is ship:body:body.//the planet ejecting from
@@ -2635,7 +2693,16 @@ local function toPlanetFromMoonDirect {
         wait until ship:body=M:body.
         wait 2.
         if willDive {
-            //TODO seemed to not happen at all
+            local inc_critical is 0.5.
+            //  check if inclination is off by more than this angle, but may be retrograde
+            local relinc is abs(rel_inclination(ship:body)).
+            if abs(180-relinc)<relinc {set relinc to abs(180-relinc).}
+            print "inclination is off by: "+relinc.
+            if (abs(rel_inclination(ship:body))>0.5){
+                print "   (off enough to consider correcting, TODO)".
+                //m_matchInclination(ship:body). //TODO
+            }else {print "   (negligable)".}
+            //inclination adjusting on exit is beyond this scripts pay grade
             print "correcting divenode".
             set divenode:eta to eta:periapsis.
             local optEjectDive is {
@@ -2742,11 +2809,13 @@ global manuver_toPlanetFromMoonDirect is depricate@:bind("manuver_toPlanetFromMo
 
 //already declared manuver and set manuver:LowestSafeOrbitWithBuffer;
 set manuver:toInSOI to manuverTo@.//now supports docking
+set manuver:toInSOIFromApsi to manuverToApsi@.//now supports docking
 set manuver:plungeFromSOI to plungeTo@.
 set manuver:trimOrbit to trim_orbit@.
 set manuver:matchInclination to m_matchInclination@.
 set manuver:getTransferTime to getTransferTime@.
 set manuver:toPlanet to toPlanet@.//UNFINISHED; temporary usage: places manuver node at next transfer window.
-set manuver:toPlanetFromMoonDirect to toPlanetFromMoonDirect@.
+set manuver:toPlanetFromMoon to toPlanetFromMoon@.
 set manuver:executeManuerNode to m_exec@.
 
+//TODO test manuverToApsi(...) targeting a non-body; fix bugged code with "approach", spelling is not the problem.
