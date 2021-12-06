@@ -550,10 +550,26 @@ local function getIncomingResolutionCoefficient{
 local function getTransferTime {
     parameter A.//start
     parameter B.//end
+    parameter number is 1.//find multiple consecutive windows
+    parameter t is time:seconds.
     if not (A:body=B:body) {
         print "bodies do not have same center".
         return "none".
     }
+    if number>1 {
+        local prevTime is t.
+        local times is list().
+        local buffer is -1.
+        from {local index is 1.} until index >=number step {set index to index+1.} do{
+            local newtime is getTransferTime(A,B,1,prevTime).
+            times:add(newtime).
+            if buffer<0{
+                set buffer to (newTime-prevTime)*0.7.
+            }
+            set prevTime to newtime+buffer.
+        }
+        return times.
+    } 
     local S is A:body.//short for sun
     parameter A_perivec is getPerapsisDirVec(A).
     parameter B_perivec is getPerapsisDirVec(B).
@@ -563,7 +579,6 @@ local function getTransferTime {
     //angle of B from anti-A
     diag("Ang: "+Ang).
     //return Ang.//answers look reasonable
-    local t is time:seconds.
     local rA0 is positionAt(A,t)-S:position().
     local rB0 is positionAt(B,t)-S:position().
     local Lb is vcrs(rB0,velocityAt(B,t):orbit).//if needed, use B as l ref
@@ -620,6 +635,7 @@ local function getTransferTime {
         diag("tto: "+tto).
 
     }
+
     return t+tto.
     
 }
@@ -652,6 +668,61 @@ local function getBurnToPlanet{
     local dv is vc*(Uf0-Ui0).
     diag("dv: "+dv).
     return dv.
+}
+local function getOptimalInclinationPortions{
+    parameter rel_inc.
+    parameter residual_inc.
+    parameter burnTo.
+    parameter burnAt.
+    parameter vcfrom.//ship orbit
+    parameter vcat.
+    parameter vcpfrom, vcpat. //planet orbit
+    local pnt_inc is choose sqrt(rel_inc^2-residual_inc^2) if abs(rel_inc)>abs(residual_inc) else 0.
+    //parameter targetApoapsis. //not needed
+    //U = sqrt (2+ ufv^2)
+    //dv (theta) = dvflat*e_x + (e_theta-e_x)*PLANET_vc
+    //inclination approx hypot (residual_inc,zeroed_inclination)
+    //mayassume small angles
+    local function thedv {
+        //after ejecting
+        parameter dv,vc,vcp,dth.
+        //dv is signed prograde
+        return vc*(sqrt(2+(dv+(vcp+dv)/vc*(cos(dth)-1))^2+(vcp+dv)^2/vc^2*sin(dth)^2)). //-vc
+        // p=vcp/vc
+        // f = vf/vc
+        //approx dv* sqrt (  2+ (f+(p+f)(-dth^2/2))^2+((p+f) dth)^2))
+        //approx dv* sqrt (  2+ f^2 (1+(p/f+1)(-dth^2))+((p+f) dth)^2))
+        //approx dv* sqrt (  2+f^2+(p^2+pf)( dth)^2))
+        ///approx good within <3%
+    }
+    local function dv_coeffs{
+        parameter dv,vc,vcp,dth.
+        // v=sqrt (a^2 + b^2 dth^2)
+        return list(2*vc^2+dv^2,vcp^2+vcp*dv).
+    }
+    //dth2 = rel_inc - 
+    //0 = b_1^2 dth_1/v_1 - b_2^2 dth_2 /v_2
+    //0 = b_1^2 dth_1*v2 - b_2^2 dth_2 *v1
+    //0 = b_1^4 dth_1^2 * v_2^2 - b_2^4 dth_2 *v_1^2
+    //0 = b_1^4 dth_1^2 * (a_2^2+b_2^2 (inc-dth_1)^2) - b_2^4 (inc-dth_1) *(a_1^2+b_1^2 dth_1^2)
+    //exact solution exists but is pages long
+    local dth1 is pnt_inc/2.
+    local dth2 is pnt_inc/2.
+    local dth is pnt_inc/1000.
+    from {local a is 0.} until a>10 step {set a to a+1.} do {
+        local dv0 is thedv(burnTo,vcfrom,vcpfrom,dth1)+thedv(burnAt,vcat,vcpat,dth2).
+        local dvplus is thedv(burnTo,vcfrom,vcpfrom,dth1+dth)+thedv(burnAt,vcat,vcpat,dth2-dth).
+        local dvminus is thedv(burnTo,vcfrom,vcpfrom,dth1-dth)+thedv(burnAt,vcat,vcpat,dth2+dth).
+        local d is (dvplus-dvminus)/2/dth.
+        if d=0 break.
+        local dd is (dvplus+dvminus-2*dv0)/dth^2.
+        
+        local cth1 is -d/abs(d)*pnt_inc/10.
+        if not dd=0 set cth1 to -d/dd.
+        set dth1 to dth1+cth1.
+        set dth2 to dth2-cth1.
+    }
+
 }
 local function m_util_min{//list version of min
     parameter ns.//will be destroyed
@@ -2593,7 +2664,7 @@ local function toPlanetFromMoon {
             }.
         if willdive {m_opt_pro(nd,optDive,getLowestSafeOrbit(A),2,0.001,10). }
         from {local i is 0.} until i>=10 step {set i to i+1.} do{//works now
-            breakpoint("angle opt").
+            //breakpoint("angle opt").
             if nd:orbit:nextpatch:transition="CAPTURE" until not nd:orbit:nextPatch:transition="CAPTURE"{//avoid moon encounters
                 diag("skiporbit.").
                 //should maintain a lock
@@ -2653,7 +2724,7 @@ local function toPlanetFromMoon {
             *velocityAt(A,nd:orbit:nextpatch:nextpatch:epoch-1):orbit:normalized.
             //a small difference (both): seems to be off both ways depending on run, sometimes a lot.
             //delta vv 
-        breakpoint("eject soon").
+        //breakpoint("eject soon").
         if not willDive {
             local optEject is {
                 if not nd:orbit:transition="ESCAPE"{
@@ -2688,7 +2759,7 @@ local function toPlanetFromMoon {
 
         //TODO add orbitHeightInDirVec using trueAnomaly / mean Anomaly, change optEject
         m_exec(nd).
-        breakpoint("moon ejecting").
+        //breakpoint("moon ejecting").
         warpTo(time:seconds+eta:transition).
         wait until ship:body=M:body.
         wait 2.

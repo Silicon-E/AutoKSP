@@ -8,6 +8,12 @@ local bin is "../bin/".//for my use: "../bin/"; for auto ksp: "./bin/"
 local bintext is "bin".
 local root is "0:/src/".
 local this is "mastercompile".
+
+local nonAutoKspRoot is "0:/src/".
+local AutoKspRoot is "0:/AutoKSP/".
+
+local nonAutoKSPbin is "../bin/".
+local AutoKSPbin is "./bin/".
 if isGit {
     if (ship:connection:isconnected) {cd("0:/AutoKSP/").}
     set root to "0:/AutoKSP/".
@@ -24,6 +30,7 @@ local cwd is path().//will stay unchanged
 local script_ext is "ks".
 local comp_ext is "ksm".
 
+//TODO add function for compiling individual file, and add to import function to make sure libs are up to date
 global function compile_dir {
     parameter subdirs is true.//subdirs are good for old versions of files
         //print path().
@@ -68,6 +75,7 @@ global function import {
     parameter lib.//no extension. relative to root dir
     parameter first is true.//add to lib list
     parameter runit is true.//dont use, use 
+    parameter isAutoKsp is isGit.
     local canArxiv is ship:connection:isconnected.
     //note: can use ship:messages to respond to messages ->auto deorbit landers
 
@@ -78,6 +86,11 @@ global function import {
     local fsize is 0.
     local maxfree is 0.
     local thepath is "0:/".
+    local root is root. //this shadows a  global
+    local bin is bin. //this shadows a  global
+    set root to choose AutoKspRoot if isAutoKsp else nonAutoKspRoot.
+    set bin to choose AutoKspBin if isAutoKsp else nonAutoKspBin.
+    //TODO test, should now let user choose between AutoKSP and not per import
     if canArxiv {
         if exists(root+lib+"."+script_ext){
                 if runit{runOncePath(root+lib+"."+script_ext).}
@@ -145,9 +158,11 @@ global function import_program {
     //adds to the rock but does not run. best for programs
     parameter lib.//no extension. relative to root dir
     parameter first is true.//add to lib list
-    return import(lib,first,false).
+    parameter isAutoKSP is isGit.
+    return import(lib,first,false,isAutoKSP).
 }
 if true {//copy over self
+    //NOTE: never compiles self
     local i is 1.
     local thepath is scriptPath():tostring.
     if true{//fsize

@@ -1,4 +1,5 @@
-runOncePath("./lib_manuver.ks",true).//has no scoping effect.
+//runOncePath("./lib_manuver.ks",true).//has no scoping effect.
+import("lib_manuver"). //bootscript has been runned
 local function input{
     local s is "".
     local c is "".
@@ -86,6 +87,7 @@ if entercode<=0 {
 
 
 }
+
 manuver:toPlanet(target,ht,5000,false,ecode,(target:radius+ht)*3,inc,bootstack["toPlanet"]).
 //print H(3).//functions default to global but can be prefixed like vars
 //manuver:getTransferTime(mun,minmus).

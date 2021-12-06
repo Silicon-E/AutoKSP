@@ -1,7 +1,9 @@
 
 //=================
 //edit here for implimentation
+local isAutoKSP is false. //TODO test, true if using mastercompile.ks from autoKSP
 local theprogram is "test_planetToFromMoon".
+local isProgramAutoKSP is false. //true if the actual program is in AutoKSP
 //=================
 // may in the future be able to overwrite the boot script by runing stackboot from another script w args
 
@@ -18,7 +20,7 @@ if exists("1:/mastercompile.ks"){
     runOncePath ("1:/mastercompile.ks").
 }
 else {
-    runOncePath ("0:/src/mastercompile.ks").
+    runOncePath (choose "0:/AutoKSP/mastercompile.ks" if isAutoKSP else "0:/src/mastercompile.ks").
 }
 local bootstrapname is "1:/bootstrap.json".//there will always be a disk 1.
 
@@ -54,7 +56,7 @@ if isFirst{
 print "reboot number: "+reboots.
 if (not bootstack:haskey("DONE")) and (isFirst) {set bootstack["DONE"] to false. save().}
 if not bootstack["DONE"]{
-    local program is import_program(theprogram).
+    local program is import_program(theprogram,true,isProgramAutoKSP).
     runoncePath(program).
     //can bypass if is first, if desired, it will still work
 }else {
