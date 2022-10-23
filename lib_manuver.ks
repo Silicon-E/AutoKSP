@@ -1271,12 +1271,23 @@ local function m_exec {
     //print out node's basic parameters - ETA and deltaV
     print "Node in: " + round(nd:eta) + ", DeltaV: " + round(nd:deltav:mag).
 
-    //calculate ship's max acceleration
-    local max_acc to ship:maxthrust/ship:mass.
-    // Please note, this is not exactly correct... mass change
-    //
-    local burn_duration to nd:deltav:mag/max_acc.
-    print "Crude Estimated burn duration: " + round(burn_duration) + "s".
+    
+    local time_before_node is 0.
+    local mdot is 0.0.//mass flow rate
+    LIST ENGINES IN myVariable.
+    FOR eng IN myVariable {
+        set mdot to mdot + eng:AVAILABLETHRUST/(eng:ISP*constant:g0).
+    }.
+    local vsp is ship:availableThrust / mdot.
+    local tsp is ship:mass / mdot.
+    local t_total is tsp * (1 - Constant:E ^ (-nd:deltav:mag / vsp)).
+    //print "t_sp = "+tsp.
+    print "Exact burn duration:  "+t_total.
+    local lnttmt is ln(tsp/(tsp-t_total)). // == vsp / deltav
+    set time_before_node to tsp - t_total / lnttmt.
+    print "Start early by:  "+time_before_node.
+    
+
     local np to nd:deltav. //points to node, don't care about the roll direction.
     //np is a value copy because the local function node:deltav has "get only" access.
     //all suffixes in kos have a property called "access" which determines whether they returne value or reference.
@@ -1290,15 +1301,15 @@ local function m_exec {
                 or nd:deltav:mag<error.
 
         //the ship is facing the right direction, let's wait for our burn time
-        local w is time:seconds+nd:eta-(burn_duration/2)-10.
+        local w is time:seconds+nd:eta-(time_before_node)-10.
         unlock steering.
         warpto(w).
     }else set reboot to true.
-    wait until nd:eta <= (burn_duration/2)+8.
+    wait until nd:eta <= (time_before_node)+8.
     set np to nd:deltav.
     lock steering to np.//wake up
     diag("m_exec: steering relocked").
-    wait until nd:eta <= (burn_duration/2).
+    wait until nd:eta <= (time_before_node).
     //we only need to lock throttle once to a certain variable in the beginning of the loop, and adjust only the variable itself inside it
     local tset to 0.
     lock throttle to tset*throttle_limiter.
