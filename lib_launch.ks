@@ -1,4 +1,7 @@
 parameter debug is true.
+
+
+
 local function breakpoint{parameter s_.
     if debug{
         //cannot pause from kos but could quicksave and then quickload later.
@@ -8,7 +11,9 @@ local function breakpoint{parameter s_.
         terminal:input:clear.
     }
 }
-if(ship:connection:isconnected) runOncePath("0:/AutoKSP/lib_launch_lob_data_kerbin.ks").
+if(ship:connection:isconnected) 
+    //runOncePath("0:/AutoKSP/lib_launch_lob_data_kerbin.ks"). // old
+    runOncePath("0:/AutoKSP/generated/lib_launch/lob_data_kerbin.ks").
 else print "Error: could not connect to space center to load kinematic data.".
 
 
@@ -733,6 +738,8 @@ set launching:launch to launch@.
 //anylizeStages().
 
 //currently reqires 2 stages, the first must be able to get well above about 10000m;
+//TODO create subfolder: ./generators, and ./generator; treat each sub-sub folder as a namespace; 
+  //use build task to run a .bat in ${activeFile}../build.bat; this way AutoKSP only needs one build path
 //TODO support for faring seperation
 ///TODO support for SRBS and seperatrons
     //(currently, all engines must be activaded and then deactivated for staging analysis, but SRBs cannot be deactivated)
