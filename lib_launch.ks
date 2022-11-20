@@ -25,8 +25,8 @@ local function G_of{
     return V:body:mu / (V:body:radius + V:altitude) ^ 2.
 }
 local function get_v_c {
-    parameter B.
-    parameter Rad.
+    parameter B is ship:body.
+    parameter Rad is B:radius + ship:altitude.
     return sqrt(B:mu/Rad).
 }
 local function simple_launch {
@@ -90,16 +90,27 @@ local function pre_anylizeStages{
     set stages to list().
 
     list engines in engineList.
+    from {local i is 0.} until i>=engineList:length() step {} do {
+        if engineList[i]:tag:contains("srb_sep")  engineList:remove(i).
+        else set i to i+1.
+    }
+
 
     local g is 9.80665.
 
     // have to activate engines to get their thrusts (for now)
     local activeEngines is list().
-    for eng in engineList
-        if eng:ignition = false
+    for eng in engineList{
+        if eng:tag:contains("srb_sep") {
+            //already removed, should not be reached
+            print "srb_sep found too late".
+        } else if eng:ignition = false{
             eng:activate.
-        else 
+        } else {
             activeEngines:add(eng).
+        }
+    }
+        
 
     // tagging all decouplers as decoupler by looking at part modules
     for part in ship:parts
@@ -346,8 +357,8 @@ function anylizeStages{
         set a to a+1.
     }
     //breakpoint("staging analysis done").
-    //print ret:first.
-    //print ret:second.
+    print ret:first.
+    print ret:second.
     //print ret:second_prev. // some stuff lime mass is never set unless there are engines
     //TODO ret:second has all its deltaV given to the faring-sep stage
     //breakpoint("stages above").
@@ -679,27 +690,49 @@ function launch{
         return.
     }
     print "curve is: "+ curve.
-    until ship:maxthrust <=0 {
+    lock shouldStage to (ship:maxthrust <=0) or (ship:mass < staging:first:drymass).
+    until shouldStage {
         //follow the curve
         local angle is getAngleOnCurveStage1(staging,curve,adjusteddeltaV1).//multiplier
         lock steering to heading(90,angle).
         print angle + "           " at (3,3).
     }
+    stage.
+    wait 0.5.
     until ship:maxthrust>0 {
         stage.
         wait 0.5.
     }
-    until ship:maxthrust <=0 
-        or  (ship:orbit:apoapsis >= targetApoapsis and ship:velocity:orbit:mag > 0.95 * get_v_c(ship:body,ship:body:radius+ship:altitude)) 
+    local stage3 is false.
+    until (ship:orbit:apoapsis >= targetApoapsis and ship:velocity:orbit:mag > 0.95 * get_v_c(ship:body,ship:body:radius+ship:altitude)) 
     { //TODO refine end condition using U-factor and burn time
         //follow the curve
         local angle is getAngleOnCurveStage2(staging,curve,adjusteddeltaV1).//multiplier
         lock steering to heading(90,angle).
         print angle + "           " at (3,3).
+        if ship:maxthrust<=0{
+            set stage3 to true.
+            break.
+        }
     }
-    local anglefinal is curve[2].
-    set anglefinal to max(anglefinal,10).
-        lock steering to heading(90,anglefinal).
+    local anglefinal is 10.
+    if stage3{
+        until ship:maxthrust>0 {
+            stage.
+            wait 0.5.
+        }
+        local geff is G_of() * (1-ship:velocity:orbit:sqrmagnitude / get_v_c()^2).
+        local twr3eff is ship:maxThrust / ship:mass / max(geff,1.0).
+        print twr3eff.
+
+        set anglefinal to arcsin(1/max(twr3eff,1.41)).
+        set anglefinal to max(anglefinal,10).
+    }else {
+        set anglefinal to curve[2].
+        set anglefinal to max(anglefinal,10).
+            
+    }
+    lock steering to heading(90,anglefinal).
     wait until ship:orbit:apoapsis >= targetApoapsis.
     lock throttle to 0.
     lock steering to prograde.
