@@ -70,6 +70,33 @@ local function getCubic {
             -(d2-3*lst2[1])*t^2*(1-t)
             +lst2[1]*t^3.//looks good
 }
+local function getLift{
+    parameter v.
+    parameter press.
+    parameter aoaa.
+    parameter wingArea is 10. // 2 big-S delta wings
+    //lift to drag ratio: https://forum.kerbalspaceprogram.com/index.php?/topic/124380-wing-lift-amp-wing-lift-to-drag-ratio-charts/
+    //the curves are for 2 big-S delta wings (Lifting force measurement is per 10 units of lift area)
+    //maxes out at 30deg.
+    return (v/100)^2 * press * (aoaa/25) *900 * wingArea/10.
+    //optimal AOA is 2 to 3 deg at 100m/s, but is 3 to 5 deg at 2304.3 m/s
+} 
+local function getDrag{
+    parameter v.
+    parameter press.
+    parameter aoaa.
+    parameter wingArea is 10. // 2 big-S delta wings
+    //lift to drag ratio: https://forum.kerbalspaceprogram.com/index.php?/topic/124380-wing-lift-amp-wing-lift-to-drag-ratio-charts/
+    //lift to drag ratio: https://forum.kerbalspaceprogram.com/index.php?/topic/124380-wing-lift-amp-wing-lift-to-drag-ratio-charts/
+    //the curves are for 2 big-S delta wings (Lifting force measurement is per 10 units of lift area)
+    //maxes out at 30deg.
+    local lift is getLift(v,press,aoaa,wingArea).
+    local b is 1/50.//at 100m/s
+    local aa is b * 2.5^2. // at 100m/s
+    local ratio is aoaa / (aa + aoaa^2*b).
+    return lift * ratio.
+    //optimal AOA is 2 to 3 deg at 100m/s, but is 3 to 5 deg at 2304.3 m/s
+}  
 local velcurve_rapier is list(
     list( 0 ,1, 0, 0.08333334),
 			list(0.2 , 0.98, 0.42074, 0.42074),
